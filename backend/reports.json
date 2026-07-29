@@ -1,0 +1,130 @@
+[
+  {
+    "employeeName": "Hrithik",
+    "reportDate": "2026-07-17",
+    "task": "Backend Testing",
+    "progress": "Testing POST",
+    "status": "Completed",
+    "id": 2
+  },
+  {
+    "employeeName": "Ashwin",
+    "reportDate": "2026-07-14",
+    "task": "web server testing",
+    "progress": "checking if the local server works properly",
+    "status": "Pending",
+    "id": 3
+  },
+  {
+    "id": 5,
+    "employeeName": "Newton",
+    "reportDate": "2026-07-17",
+    "task": "presentation",
+    "progress": "completed the 2nd part of presentation",
+    "status": "Completed"
+  },
+  {
+    "employeeName": "Rahul",
+    "reportDate": "2026-07-17",
+    "task": "documentaion",
+    "progress": "complete the excel documentation",
+    "status": "Completed",
+    "id": 8
+  },
+  {
+    "employeeName": "Aditya",
+    "reportDate": "2026-07-14",
+    "task": "Frontend",
+    "progress": "Designed dashboard UI",
+    "status": "Pending",
+    "id": 9
+  },
+  {
+    "employeeName": "Akshay",
+    "reportDate": "2026-07-18",
+    "task": "Email Validation",
+    "progress": "Validated company emails",
+    "status": "Completed",
+    "id": 20
+  },
+  {
+    "employeeName": "Newton",
+    "reportDate": "2026-07-19",
+    "task": "Presentation",
+    "progress": "Completed project presentation",
+    "status": "Completed",
+    "id": 21
+  },
+  {
+    "employeeName": "Hiba",
+    "reportDate": "2026-07-19",
+    "task": "API Testing",
+    "progress": "Verified all REST APIs",
+    "status": "Completed",
+    "id": 22
+  },
+  {
+    "employeeName": "Priya",
+    "reportDate": "2026-07-20",
+    "task": "Documentation",
+    "progress": "Prepared API documentation",
+    "status": "In Progress",
+    "id": 23
+  },
+  {
+    "employeeName": "Aditya",
+    "reportDate": "2026-07-15",
+    "task": "Frontend",
+    "progress": "Designed dashboard UI",
+    "status": "Completed",
+    "id": 25
+  },
+  {
+    "employeeName": "Karthi",
+    "reportDate": "2026-07-15",
+    "task": "Frontend",
+    "progress": "Designed dashboard UI",
+    "status": "Completed",
+    "id": 26
+  },
+  {
+    "employeeName": "Ashik",
+    "reportDate": "2026-07-17",
+    "task": "Backend Testing",
+    "progress": "Tested POST API",
+    "status": "Completed",
+    "id": 27
+  },
+  {
+    "employeeName": "Kadhir",
+    "reportDate": "2026-07-18",
+    "task": "API Integration",
+    "progress": "Connected frontend with backend",
+    "status": "In Progress",
+    "id": 28
+  },
+  {
+    "employeeName": "Kumar",
+    "reportDate": "2026-07-15",
+    "task": "Frontend",
+    "progress": "Designed dashboard UI",
+    "status": "Completed",
+    "id": 29
+  },
+  {
+    "employeeName": "Neeraj",
+    "reportDate": "2026-07-22",
+    "task": "Emails",
+    "progress": "Verify emails and send valid responses",
+    "status": "Completed",
+    "id": 30
+  },
+  {
+    "employeeName": "Vaishak",
+    "reportDate": "2026-07-23",
+    "task": "Presentation",
+    "progress": "Presented regarding the new changes in layout",
+    "status": "Completed",
+    "id": 31
+  }
+]
