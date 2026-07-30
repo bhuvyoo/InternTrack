@@ -60,20 +60,39 @@ function formatExcelDate(dateString) {
 //3. CHECK IF REPORTS ALREADY EXISTS
 function isDuplicate(existingReport, importedReport) {
 
+    const existingEmployee =
+        (existingReport.employeeName || "")
+            .trim()
+            .toLowerCase();
+
+    const importedEmployee =
+        (importedReport.employeeName || "")
+            .trim()
+            .toLowerCase();
+
+    const existingTask =
+        (existingReport.task || "")
+            .trim()
+            .toLowerCase();
+
+    const importedTask =
+        (importedReport.task || "")
+            .trim()
+            .toLowerCase();
+
+    const existingDate =
+        existingReport.reportDate || "";
+
+    const importedDate =
+        importedReport.reportDate || "";
+
     return (
 
-        existingReport.employeeName?.trim().toLowerCase() ===
-        importedReport.employeeName?.trim().toLowerCase()
+        existingEmployee === importedEmployee &&
 
-        &&
+        existingTask === importedTask &&
 
-        existingReport.reportDate ===
-        importedReport.reportDate
-
-        &&
-
-        existingReport.task?.trim().toLowerCase()===
-        importedReport.task?.trim().toLowerCase()
+        existingDate === importedDate
 
     );
 
@@ -86,17 +105,19 @@ function cleanReports(reports) {
 
     return reports.filter(report => {
 
-        const key =
+        const key = [
 
-            report.employeeName.trim().toLowerCase()
+            (report.employeeName || "")
+                .trim()
+                .toLowerCase(),
 
-            + "_"
+            report.reportDate || "",
 
-            + report.reportDate
+            (report.task || "")
+                .trim()
+                .toLowerCase()
 
-            + "_"
-
-            + report.task.trim().toLowerCase();
+        ].join("_");
 
         if (seen.has(key)) {
 
@@ -205,6 +226,23 @@ app.post("/reports", (req, res) => {
 
     const report = req.body;
 
+    // Check if employee exists
+const users = getUsers();
+
+const employee = users.find(user =>
+    user.email.toLowerCase() === report.employeeEmail.toLowerCase()
+);
+
+if (!employee) {
+
+    return res.status(400).json({
+
+        message: "Employee does not exist. Please add the employee first."
+
+    });
+
+}
+
     console.log("POST ROUTE EXECUTED");
 
     let reports = [];
@@ -244,19 +282,55 @@ app.post("/reports", (req, res) => {
     //if no duplicate, save the new report into reports.json, by generating new ID. Also produce success message
     
     //generates new unique ID, for existing array
-    const newId = reports.length > 0 ? Math.max(...reports.map(r => r.id || 0)) + 1 : 1;
-    report.id = newId;
-    console.log("Saving Report:", report);
-    reports.push(report);
+    const newId =
+reports.length > 0
+? Math.max(...reports.map(r => r.id || 0)) + 1
+: 1;
+
+const newReport = {
+
+    id: newId,
+
+    employeeId: report.employeeId || 0,
+
+    employeeName: report.employeeName,
+
+    employeeEmail: report.employeeEmail || "",
+
+    department: report.department || "",
+
+    reportDate: report.reportDate,
+
+    task: report.task,
+
+    description: report.description || "",
+
+    progress: report.progress || "",
+
+    hoursWorked: report.hoursWorked || 0,
+
+    status: report.status || "Pending",
+
+    managerRemarks: report.managerRemarks || "",
+
+    submittedAt:
+        report.submittedAt || new Date().toISOString()
+
+};
+
+reports.push(newReport);
 
     fs.writeFileSync(REPORT_FILE, JSON.stringify(reports, null, 2));
 
-    console.log("New Report:", report);
+    console.log("New Report:", newReport);
 
-    res.json({
-        message: "Report Saved Successfully",
-        report: report
-    });
+res.json({
+
+    message: "Report Saved Successfully",
+
+    report: newReport
+
+});
 
 });
 
@@ -293,9 +367,15 @@ app.put("/reports/:id", (req, res) => {
             });
         }
 
-        updatedReport.id=id;
-        //update old records into new records
-        reports[index] = updatedReport;
+        reports[index] = {
+
+    ...reports[index],
+
+    ...updatedReport,
+
+    id
+
+};
 
         fs.writeFileSync(
             REPORT_FILE,
@@ -490,13 +570,43 @@ app.post(
 
             //8.2 Normalize Excel columns
             const normalizedReports = importedReports.map(report => ({
-                employeeName: report["Employee Name"]?.toString().trim(),reportDate: formatExcelDate(
-                    report["Report Date"]
-                ),
-                task: report["Task"]?.toString().trim(),
-                progress: report["Progress"]?.toString().trim(),
-                status: report["Status"]?.toString().trim()
-            }));
+
+    employeeId: 0,
+
+    employeeName:
+        report["Employee Name"]?.toString().trim() || "",
+
+    employeeEmail:
+        report["Employee Email"]?.toString().trim() || "",
+
+    department:
+        report["Department"]?.toString().trim() || "",
+
+    reportDate:
+        formatExcelDate(report["Report Date"]),
+
+    task:
+        report["Task"]?.toString().trim() || "",
+
+    description:
+        report["Description"]?.toString().trim() || "",
+
+    progress:
+        report["Progress"]?.toString().trim() || "",
+
+    hoursWorked:
+        Number(report["Hours Worked"]) || 0,
+
+    status:
+        report["Status"]?.toString().trim() || "Pending",
+
+    managerRemarks:
+        report["Manager Remarks"]?.toString().trim() || "",
+
+    submittedAt:
+        new Date().toISOString()
+
+}));
             console.log("Normalized Reports:");
             console.log(normalizedReports);
 
@@ -516,20 +626,52 @@ app.post(
             }
 
             //8.4 Remove empty rows
-            const validReports = normalizedReports.filter(report =>
+            const users = getUsers();
 
-                report.employeeName &&
-                report.reportDate &&
-                report.task &&
-                report.progress &&
-                report.status
+const validReports = normalizedReports.filter(report => {
 
-            );
+    const employeeExists = users.some(user =>
+
+        user.email.toLowerCase() ===
+        report.employeeEmail.toLowerCase()
+
+    );
+
+    return (
+
+        employeeExists &&
+
+        report.employeeName &&
+        report.employeeEmail &&
+        report.reportDate &&
+        report.task &&
+        report.description &&
+        report.progress &&
+        report.hoursWorked >= 0 &&
+        report.status
+
+    );
+
+});
+
+
 
             //8.5 REMOVE DUPLICATE ROWS
             const seenKeys = new Set();
             const uniqueReports = validReports.filter(report => {
-                const key = report.employeeName.trim().toLowerCase() +"_" +report.reportDate;
+                const key = [
+
+    report.employeeName
+        .trim()
+        .toLowerCase(),
+
+    report.reportDate,
+
+    report.task
+        .trim()
+        .toLowerCase()
+
+].join("_");
             if (seenKeys.has(key)) {
                 return false;
             }
@@ -621,21 +763,23 @@ console.log(
 
     summary: {
 
-        totalRows: importedReports.length,
+    totalRows: importedReports.length,
 
-        validRows: validReports.length,
+    validRows: validReports.length,
 
-        excelDuplicates:
-            validReports.length - uniqueReports.length,
+    missingEmployees: missingEmployees.length,
 
-        databaseDuplicates:
-            uniqueReports.length - newReports.length,
+    excelDuplicates:
+        validReports.length - uniqueReports.length,
 
-        imported: newReports.length,
+    databaseDuplicates:
+        uniqueReports.length - newReports.length,
 
-        totalReports: reports.length
+    imported: newReports.length,
 
-    },
+    totalReports: reports.length
+
+},
 
     reports: reports
 
@@ -868,7 +1012,6 @@ app.post("/users", (req, res) => {
     const exists = users.find(
 
         user =>
-
             user.email.toLowerCase() ===
             newUser.email.toLowerCase()
 
@@ -886,8 +1029,31 @@ app.post("/users", (req, res) => {
 
     newUser.id =
         users.length > 0
-            ? Math.max(...users.map(u => u.id)) + 1
+            ? Math.max(...users.map(u => u.id || 0)) + 1
             : 1;
+
+    // Default values
+
+    newUser.department =
+        newUser.department || "";
+
+    newUser.employmentType =
+        newUser.employmentType || "";
+
+    newUser.joiningDate =
+        newUser.joiningDate || "";
+
+    newUser.status =
+        "Active";
+
+    newUser.archiveReason =
+        "";
+
+    newUser.archivedOn =
+        "";
+
+    newUser.archivedBy =
+        "";
 
     users.push(newUser);
 
@@ -904,18 +1070,14 @@ app.post("/users", (req, res) => {
 });
 
 //13. UPDATE USER
-
 app.put("/users/:id", (req, res) => {
 
     const id = parseInt(req.params.id);
 
     const users = getUsers();
 
-    const index = users.findIndex(
-
-        user => user.id === id
-
-    );
+    const index =
+        users.findIndex(user => user.id === id);
 
     if (index === -1) {
 
@@ -941,23 +1103,38 @@ app.put("/users/:id", (req, res) => {
 
     res.json({
 
-        message: "Employee Updated"
+        message: "Employee Updated",
+
+        user: users[index]
 
     });
 
 });
 
-//14. DELETE USER
 
-app.delete("/users/:id", (req, res) => {
+//14. ARCHIVE USER
+
+app.put("/users/archive/:id", (req, res) => {
 
     const id = parseInt(req.params.id);
 
-    let users = getUsers();
+    const {
 
-    const exists = users.find(user => user.id === id);
+        archiveReason,
 
-    if (!exists) {
+        archivedBy
+
+    } = req.body;
+
+    const users = getUsers();
+
+    const user = users.find(
+
+        u => u.id === id
+
+    );
+
+    if (!user) {
 
         return res.status(404).json({
 
@@ -967,17 +1144,67 @@ app.delete("/users/:id", (req, res) => {
 
     }
 
-    users = users.filter(user => user.id !== id);
+    user.status = "Archived";
+
+    user.archiveReason =
+        archiveReason || "";
+
+    user.archivedOn =
+        new Date().toISOString().split("T")[0];
+
+    user.archivedBy =
+        archivedBy || "Admin";
 
     saveUsers(users);
 
     res.json({
 
-        message: "Employee Deleted"
+        message: "Employee Archived"
 
     });
 
 });
+
+
+//15. RESTORE USER
+
+app.put("/users/restore/:id", (req, res) => {
+
+    const id = parseInt(req.params.id);
+
+    const users = getUsers();
+
+    const user =
+        users.find(u => u.id === id);
+
+    if (!user) {
+
+        return res.status(404).json({
+
+            message: "Employee not found"
+
+        });
+
+    }
+
+    user.status = "Active";
+
+    user.archiveReason = "";
+
+    user.archivedOn = "";
+
+    user.archivedBy = "";
+
+    saveUsers(users);
+
+    res.json({
+
+        message: "Employee Restored"
+
+    });
+
+});
+
 
 //START SERVER
 app.listen(3000, () => {

@@ -1,51 +1,114 @@
 [
   {
     "id": 3,
-    "email": "employee@interntrack.com",
-    "password": "intern123",
     "name": "Bhuvana",
-    "role": "employee"
+    "email": "bhuvana@gmail.com",
+    "password": "bhuvana123",
+    "role": "employee",
+    "employmentType": "Intern",
+    "department": "Engineering",
+    "joiningDate": "2026-07-01",
+    "status": "Active",
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
   },
   {
+    "id": 4,
     "name": "Aditya",
     "email": "adityadraj@gmail.com",
     "password": "adi123",
     "role": "admin",
-    "id": 4
+    "employmentType": "",
+    "department": "Administration",
+    "joiningDate": "2026-07-01",
+    "status": "Active",
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
   },
   {
+    "id": 6,
     "name": "Hrithik",
     "email": "hrithik@gmail.com",
     "password": "",
     "role": "employee",
-    "id": 6
+    "employmentType": "Intern",
+    "department": "Engineering",
+    "joiningDate": "2026-07-01",
+    "status": "Active",
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
   },
   {
+    "id": 8,
     "name": "admin",
     "email": "admin123@gmail.com",
     "password": "admin123",
     "role": "admin",
-    "id": 8
+    "employmentType": "",
+    "department": "Administration",
+    "joiningDate": "2026-07-01",
+    "status": "Active",
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
   },
   {
+    "id": 9,
     "name": "test",
     "email": "test@gmail.com",
     "password": "test123",
     "role": "employee",
-    "id": 9
+    "employmentType": "Temporary",
+    "department": "Engineering",
+    "joiningDate": "2026-07-01",
+    "status": "Archived",
+    "archiveReason": "Archived by Admin",
+    "archivedOn": "2026-07-30",
+    "archivedBy": "Admin"
   },
   {
+    "id": 10,
     "name": "mentor",
     "email": "mentor@gmail.com",
     "password": "mentor123",
     "role": "mentor",
-    "id": 10
+    "employmentType": "",
+    "department": "Engineering",
+    "joiningDate": "2026-07-01",
+    "status": "Active",
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
   },
   {
     "id": 11,
     "name": "Hridai",
     "email": "hridai@gmail.com",
     "password": "123456",
-    "role": "mentor"
+    "role": "mentor",
+    "employmentType": "",
+    "department": "Engineering",
+    "joiningDate": "2026-07-01",
+    "status": "Active",
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
+  },
+  {
+    "name": "Ishani",
+    "email": "ishani@gmail.com",
+    "password": "ishani123",
+    "role": "employee",
+    "employmentType": "Permanent",
+    "department": "Operations",
+    "joiningDate": "2026-07-30",
+    "status": "Active",
+    "id": 12,
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
   }
 ]
