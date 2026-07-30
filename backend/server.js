@@ -213,6 +213,8 @@ app.post("/login", (req, res) => {
 
             email: user.email,
 
+            department: user.department || "",
+
             role: user.role
 
         }
