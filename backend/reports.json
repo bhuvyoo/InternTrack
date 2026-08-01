@@ -73,5 +73,20 @@
     "status": "Pending",
     "managerRemarks": "",
     "submittedAt": "2026-07-30T17:19:25.540Z"
+  },
+  {
+    "id": 6,
+    "employeeId": 3,
+    "employeeName": "Bhuvana",
+    "employeeEmail": "bhuvana@gmail.com",
+    "department": "Engineering",
+    "reportDate": "2026-07-31",
+    "task": "ygsdbu",
+    "description": "fvhiauhevifudb",
+    "progress": "sbviduoifo jvoivfod",
+    "hoursWorked": 2,
+    "status": "Pending",
+    "managerRemarks": "",
+    "submittedAt": "2026-07-31T09:48:09.756Z"
   }
 ]
