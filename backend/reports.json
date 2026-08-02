@@ -27,8 +27,8 @@
     "description": "Worked on import and export APIs.",
     "progress": "Import API completed. Export testing pending.",
     "hoursWorked": 7,
-    "status": "Pending",
-    "managerRemarks": "",
+    "status": "Approved",
+    "managerRemarks": "verified",
     "submittedAt": "2026-07-29T18:00:00"
   },
   {
@@ -75,8 +75,8 @@
     "description": "Worked on Operations module",
     "progress": "Completed backend APIs",
     "hoursWorked": 2,
-    "status": "Pending",
-    "managerRemarks": "",
+    "status": "Approved",
+    "managerRemarks": "verified",
     "submittedAt": "2026-07-30T17:19:25.540Z"
   },
   {
@@ -91,8 +91,8 @@
     "description": "Implemented mentor report filtering",
     "progress": "Completed UI and backend",
     "hoursWorked": 2,
-    "status": "Pending",
-    "managerRemarks": "",
+    "status": "Rejected",
+    "managerRemarks": "need more correction",
     "submittedAt": "2026-07-31T09:48:09.756Z"
   }
 ]
