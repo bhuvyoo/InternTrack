@@ -807,23 +807,13 @@ console.log(
 
 //9. GET USERS
 
-app.get("/users",(req,res)=>{
+//9. GET USERS
+
+app.get("/users", (req, res) => {
 
     const users = getUsers();
 
-    const safeUsers = users.map(user=>({
-
-        id:user.id,
-
-        name:user.name,
-
-        email:user.email,
-
-        role:user.role
-
-    }));
-
-    res.json(safeUsers);
+    res.json(users);
 
 });
 
