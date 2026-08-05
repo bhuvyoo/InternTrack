@@ -207,17 +207,23 @@ app.post("/login", (req, res) => {
 
         user: {
 
-            id: user.id,
+    id: user.id,
 
-            name: user.name,
+    name: user.name,
 
-            email: user.email,
+    email: user.email,
 
-            department: user.department || "",
+    department: user.department || "",
 
-            role: user.role
+    employmentType: user.employmentType || "",
 
-        }
+    mentorId: user.mentorId || null,
+
+    status: user.status || "Active",
+
+    role: user.role
+
+}
 
     });
 
@@ -298,6 +304,8 @@ const newReport = {
     employeeName: report.employeeName,
 
     employeeEmail: report.employeeEmail || "",
+
+    mentorId: report.mentorId || 0,
 
     department: report.department || "",
 
@@ -805,7 +813,6 @@ console.log(
     }
 );
 
-//9. GET USERS
 
 //9. GET USERS
 

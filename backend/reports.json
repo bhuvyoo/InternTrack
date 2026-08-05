@@ -94,5 +94,37 @@
     "status": "Rejected",
     "managerRemarks": "need more correction",
     "submittedAt": "2026-07-31T09:48:09.756Z"
+  },
+  {
+    "id": 8,
+    "employeeId": 6,
+    "employeeName": "Hrithik",
+    "employeeEmail": "hrithik@gmail.com",
+    "mentorId": 3,
+    "department": "Engineering",
+    "reportDate": "2026-08-03",
+    "task": "dhbdvhb",
+    "description": "hbaluebcub",
+    "progress": "jvkbv",
+    "hoursWorked": 2,
+    "status": "Approved",
+    "managerRemarks": "ok",
+    "submittedAt": "2026-08-04T12:13:59.587Z"
+  },
+  {
+    "id": 9,
+    "employeeId": 5,
+    "employeeName": "Bhuvana",
+    "employeeEmail": "bhuvana@gmail.com",
+    "mentorId": 3,
+    "department": "Engineering",
+    "reportDate": "2026-08-04",
+    "task": "sdk",
+    "description": "dvkbvbju",
+    "progress": "frrferg",
+    "hoursWorked": 4,
+    "status": "Approved",
+    "managerRemarks": "ygv",
+    "submittedAt": "2026-08-04T12:16:17.900Z"
   }
 ]
