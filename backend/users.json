@@ -43,9 +43,9 @@
   },
   {
     "id": 4,
-    "name": "Hridai",
-    "email": "hridai@gmail.com",
-    "password": "123456",
+    "name": "Mentor2",
+    "email": "Mentor2@gmail.com",
+    "password": "mentor2123",
     "role": "mentor",
     "employmentType": "",
     "department": "Engineering",
@@ -114,5 +114,19 @@
     "archiveReason": "Archived by Admin",
     "archivedOn": "2026-07-30",
     "archivedBy": "Admin"
+  },
+  {
+    "name": "hiba",
+    "email": "hiba@gmail.com",
+    "password": "hiba123",
+    "role": "employee",
+    "employmentType": "Intern",
+    "department": "Sales",
+    "joiningDate": "2026-08-05",
+    "status": "Active",
+    "id": 9,
+    "archiveReason": "",
+    "archivedOn": "",
+    "archivedBy": ""
   }
 ]
