@@ -1,6 +1,7 @@
 //IMPORTS
 const express = require("express");
 const cors = require("cors");
+const pool = require('./db/database');
 const fs = require("fs");
 const XLSX = require("xlsx");
 const multer = require("multer");
@@ -172,62 +173,93 @@ app.get("/", (req, res) => {
     res.send("InternTrack Backend Running");
 });
 
-//2. LOGIN
-app.post("/login", (req, res) => {
+// 2. LOGIN - PostgreSQL
+app.post("/login", async (req, res) => {
 
-    const { email, password } = req.body;
+    try {
 
-    const users = getUsers();
+        const { email, password } = req.body;
 
-    const user = users.find(
+        // Check that email and password were provided
+        if (!email || !password) {
 
-        u =>
+            return res.status(400).json({
+                message: "Email and password are required"
+            });
 
-            u.email.toLowerCase() === email.toLowerCase() &&
+        }
 
-            u.password === password
+        // Find user in PostgreSQL
+        const result = await pool.query(
+            `
+            SELECT
+                id,
+                name,
+                email,
+                password,
+                department,
+                employment_type,
+                mentor_id,
+                status,
+                role
+            FROM users
+            WHERE LOWER(email) = LOWER($1)
+            AND password = $2
+            LIMIT 1
+            `,
+            [email, password]
+        );
 
-    );
+        // User not found / invalid password
+        if (result.rows.length === 0) {
 
-    //if user not found (or) invalid password or email, return error
-    if (!user) {
+            return res.status(401).json({
+                message: "Invalid Username or Password"
+            });
 
-        return res.status(401).json({
+        }
 
-            message: "Invalid Username or Password"
+        const user = result.rows[0];
+
+        // Login successful
+        res.json({
+
+            message: "Login Successful",
+
+            user: {
+
+                id: user.id,
+
+                name: user.name,
+
+                email: user.email,
+
+                department: user.department || "",
+
+                employmentType: user.employment_type || "",
+
+                mentorId: user.mentor_id || null,
+
+                status: user.status || "Active",
+
+                role: user.role
+
+            }
 
         });
 
+    } catch (error) {
+
+        console.error("LOGIN DATABASE ERROR:", error);
+
+        res.status(500).json({
+            message: "Database error during login"
+        });
+
     }
-    
-    //if the user is found, return success message and user data
-    res.json({
-
-        message: "Login Successful",
-
-        user: {
-
-    id: user.id,
-
-    name: user.name,
-
-    email: user.email,
-
-    department: user.department || "",
-
-    employmentType: user.employmentType || "",
-
-    mentorId: user.mentorId || null,
-
-    status: user.status || "Active",
-
-    role: user.role
-
-}
-
-    });
 
 });
+
 
 //3. CREATE REPORT
 app.post("/reports", (req, res) => {
@@ -1204,8 +1236,193 @@ app.put("/users/restore/:id", (req, res) => {
 
 });
 
+app.get('/db-test', async (req, res) => {
 
-//START SERVER
-app.listen(3000, () => {
-    console.log("Server running on http://localhost:3000");
+    try {
+
+        const result = await pool.query(
+            'SELECT NOW() AS current_time'
+        );
+
+        res.json({
+            success: true,
+            message: 'PostgreSQL connection successful',
+            time: result.rows[0].current_time
+        });
+
+    } catch (error) {
+
+        console.error('Database test failed:', error);
+
+        res.status(500).json({
+            success: false,
+            message: 'PostgreSQL connection failed'
+        });
+
+    }
+
 });
+
+app.post('/migrate-users', async (req, res) => {
+
+    try {
+
+        const users = getUsers();
+
+        if (!users.length) {
+
+            return res.json({
+                success: false,
+                message: 'No users found in users.json'
+            });
+
+        }
+
+        let imported = 0;
+        let skipped = 0;
+
+        for (const user of users) {
+
+            const existing = await pool.query(
+                'SELECT id FROM users WHERE email = $1',
+                [user.email]
+            );
+
+            if (existing.rows.length > 0) {
+
+                skipped++;
+
+                continue;
+            }
+
+            await pool.query(
+                `
+                INSERT INTO users (
+                    id,
+                    name,
+                    email,
+                    password,
+                    role,
+                    mentor_id,
+                    employment_type,
+                    department,
+                    joining_date,
+                    status,
+                    archive_reason,
+                    archived_on,
+                    archived_by
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    $8,
+                    $9,
+                    $10,
+                    $11,
+                    $12,
+                    $13
+                )
+                `,
+                [
+                    user.id,
+                    user.name,
+                    user.email,
+                    user.password,
+                    user.role,
+                    user.mentorId || null,
+                    user.employmentType || null,
+                    user.department || null,
+                    user.joiningDate || null,
+                    user.status || 'Active',
+                    user.archiveReason || null,
+                    user.archivedOn || null,
+                    user.archivedBy || null
+                ]
+            );
+
+            imported++;
+        }
+
+        res.json({
+            success: true,
+            message: 'Users migrated successfully',
+            imported,
+            skipped
+        });
+
+    } catch (error) {
+
+        console.error('Migration error:', error);
+
+        res.status(500).json({
+            success: false,
+            message: 'User migration failed',
+            error: error.message
+        });
+
+    }
+
+});
+
+
+app.get('/health', async (req, res) => {
+
+    try {
+
+        const result = await pool.query(
+            'SELECT NOW() AS database_time'
+        );
+
+        res.json({
+            server: 'OK',
+            database: 'Connected',
+            databaseTime: result.rows[0].database_time
+        });
+
+    } catch (error) {
+
+        console.error('Health check failed:', error);
+
+        res.status(500).json({
+            server: 'OK',
+            database: 'Disconnected'
+        });
+
+    }
+
+});
+
+
+// START SERVER
+async function startServer() {
+
+    try {
+
+        // Actually test PostgreSQL
+        await pool.query('SELECT NOW()');
+
+        console.log("PostgreSQL Connected");
+
+        app.listen(3000, () => {
+
+            console.log(
+                "Server running on http://localhost:3000"
+            );
+
+        });
+
+    } catch (error) {
+
+        console.error("PostgreSQL connection failed:");
+        console.error(error.message);
+
+    }
+
+}
+
+startServer();
