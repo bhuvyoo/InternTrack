@@ -12,6 +12,10 @@ const path = require("path");
 const REPORT_FILE = path.join(__dirname, "reports.json");
 const USER_FILE = path.join(__dirname, "users.json");
 
+//JWT
+const jwt = require("jsonwebtoken");
+const JWT_SECRET = "interntrack-secret-key";
+
 
 //MIDDLEWARE
 const upload = multer({
@@ -167,6 +171,63 @@ function saveUsers(users) {
 
 }
 
+function authenticateToken(req, res, next) {
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+        return res.status(401).json({
+            message: "Access token required"
+        });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+        return res.status(401).json({
+            message: "Invalid authorization format"
+        });
+    }
+
+    try {
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        req.user = decoded;
+
+        next();
+
+    } catch (error) {
+
+        return res.status(401).json({
+            message: "Invalid or expired token"
+        });
+
+    }
+
+}
+
+function authorizeRoles(...allowedRoles) {
+
+    return (req, res, next) => {
+
+        if (!req.user) {
+            return res.status(401).json({
+                message: "Authentication required"
+            });
+        }
+
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                message: "Access denied"
+            });
+        }
+
+        next();
+    };
+
+}
+
 //ROUTES
 //1. HOMEROUTE
 app.get("/", (req, res) => {
@@ -221,29 +282,35 @@ app.post("/login", async (req, res) => {
 
         const user = result.rows[0];
 
+        const token = jwt.sign(
+    {
+        id: user.id,
+        email: user.email,
+        role: user.role
+    },
+    JWT_SECRET,
+    {
+        expiresIn: "1h"
+    }
+);
+console.log("JWT GENERATED:", token);
+
         // Login successful
         res.json({
 
             message: "Login Successful",
 
+            token: token,
+
             user: {
-
                 id: user.id,
-
                 name: user.name,
-
                 email: user.email,
-
                 department: user.department || "",
-
                 employmentType: user.employment_type || "",
-
                 mentorId: user.mentor_id || null,
-
                 status: user.status || "Active",
-
                 role: user.role
-
             }
 
         });
@@ -262,7 +329,7 @@ app.post("/login", async (req, res) => {
 
 
 //3. CREATE REPORT
-app.post("/reports", (req, res) => {
+app.post("/reports",authenticateToken, (req, res) => {
 
     const report = req.body;
 
@@ -377,7 +444,7 @@ res.json({
 });
 
 //4. UPDATE REPORT
-app.put("/reports/:id", (req, res) => {
+app.put("/reports/:id", authenticateToken, (req, res) => {
 
     try {
         //converts the id from string to integer, to match the id in reports.json
@@ -444,7 +511,7 @@ app.put("/reports/:id", (req, res) => {
 });
 
 //5. DELETE REPORT
-app.delete("/reports/:id", (req, res) => {
+app.delete("/reports/:id", authenticateToken, (req, res) => {
 
     try {
         //converts the id from string to integer, to match the id in reports.json
@@ -502,7 +569,7 @@ app.delete("/reports/:id", (req, res) => {
 });
 
 //6. VIEW REPORTS
-app.get("/reports", (req, res) => {
+app.get("/reports", authenticateToken, (req, res) => {
 
     try {
 
@@ -539,7 +606,7 @@ app.get("/reports", (req, res) => {
 
 
 //7. EXPORT EXCEL
-app.get("/export", (req, res) => {
+app.get("/export", authenticateToken, (req, res) => {
 
     try {
 
@@ -586,6 +653,8 @@ app.get("/export", (req, res) => {
 //8. IMPORT EXCEL
 app.post(
     "/import",
+    authenticateToken,
+    authorizeRoles("admin"),
     upload.single("file"),
     (req, res) => {
 
@@ -1392,6 +1461,56 @@ app.get('/health', async (req, res) => {
             server: 'OK',
             database: 'Disconnected'
         });
+
+    }
+
+});
+
+
+app.get('/reports/employee/:employeeId', async (req, res) => {
+
+    const employeeId = Number(req.params.employeeId);
+
+    if (!Number.isInteger(employeeId) || employeeId <= 0) {
+        return res.status(400).json({
+            message: 'Invalid employee ID'
+        });
+    }
+
+    const client = await pool.connect();
+
+    const cursorName = `employee_reports_${Date.now()}`;
+
+    try {
+
+        await client.query('BEGIN');
+
+        await client.query(
+            'CALL get_employee_reports($1, $2)',
+            [employeeId, cursorName]
+        );
+
+        const result = await client.query(
+            `FETCH ALL FROM "${cursorName}"`
+        );
+
+        await client.query('COMMIT');
+
+        res.json(result.rows);
+
+    } catch (error) {
+
+        await client.query('ROLLBACK');
+
+        console.error('Stored Procedure Error:', error);
+
+        res.status(500).json({
+            message: 'Unable to fetch employee reports'
+        });
+
+    } finally {
+
+        client.release();
 
     }
 
