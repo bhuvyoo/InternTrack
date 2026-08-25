@@ -328,118 +328,260 @@ console.log("JWT GENERATED:", token);
 });
 
 
-//3. CREATE REPORT
-app.post("/reports",authenticateToken, (req, res) => {
+//3. CREATE REPORT - PostgreSQL
 
-    const report = req.body;
+app.post("/reports", authenticateToken, async (req, res) => {
 
-    // Check if employee exists
-const users = getUsers();
+    try {
 
-const employee = users.find(user =>
-    user.email.toLowerCase() === report.employeeEmail.toLowerCase()
-);
+        const report = req.body;
 
-if (!employee) {
+        console.log("POST REPORT - PostgreSQL");
+        console.log("Incoming Report:", report);
 
-    return res.status(400).json({
 
-        message: "Employee does not exist. Please add the employee first."
+        // =========================================
+        // FIND EMPLOYEE
+        // =========================================
 
-    });
+        const employeeResult = await pool.query(
 
-}
+            `
+            SELECT
+                id,
+                name,
+                email,
+                department
+            FROM users
+            WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
+            LIMIT 1
+            `,
 
-    console.log("POST ROUTE EXECUTED");
+            [report.employeeEmail]
 
-    let reports = [];
-    console.log("Incoming Report:", report);
+        );
 
-    if (fs.existsSync(REPORT_FILE)) {
 
-        const data = fs.readFileSync(REPORT_FILE, "utf8");
+        if (employeeResult.rows.length === 0) {
 
-        if (data.trim() !== "") {
-            reports = JSON.parse(data);
+            return res.status(400).json({
+
+                message:
+                    "Employee does not exist. Please add the employee first."
+
+            });
+
         }
 
-    }
-    console.log("Existing Reports:", reports);
+
+        const employee = employeeResult.rows[0];
 
 
-    //DUPLICATE CHECK 
-    //checking if employee name and report dates are same
-    console.log("Checking duplicate...");
-    const duplicate = reports.find(existing =>
+        // =========================================
+        // DUPLICATE CHECK
+        // Same employee + same report date
+        // =========================================
 
-    existing.employeeName &&
-    existing.reportDate &&
+        const duplicateResult = await pool.query(
 
-    isDuplicate(existing, report)
+            `
+            SELECT id
+            FROM reports
+            WHERE employee_id = $1
+              AND report_date = $2
+            LIMIT 1
+            `,
 
-);
-    //if duplicate is found, return error message
-    if (duplicate) {
-        console.log("DUPLICATE FOUND");
-        return res.status(400).json({
-            message: "Report already exists for this employee on this date."
+            [
+                employee.id,
+                report.reportDate
+            ]
+
+        );
+
+
+        if (duplicateResult.rows.length > 0) {
+
+            console.log("DUPLICATE REPORT FOUND");
+
+            return res.status(400).json({
+
+                message:
+                    "Report already exists for this employee on this date."
+
+            });
+
+        }
+
+
+        // =========================================
+        // INSERT REPORT
+        // =========================================
+
+        const result = await pool.query(
+
+            `
+            INSERT INTO reports (
+
+                employee_id,
+                mentor_id,
+                report_date,
+                task,
+                department,
+                description,
+                progress,
+                hours_worked,
+                status,
+                manager_remarks,
+                submitted_at
+
+            )
+
+            VALUES (
+
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10,
+                COALESCE($11::timestamp, CURRENT_TIMESTAMP)
+
+            )
+
+            RETURNING *
+
+            `,
+
+            [
+
+                employee.id,
+
+                report.mentorId || null,
+
+                report.reportDate,
+
+                report.task || "",
+
+                report.department ||
+                    employee.department ||
+                    "",
+
+                report.description || "",
+
+                report.progress || "",
+
+                Number(report.hoursWorked) || 0,
+
+                report.status || "Pending",
+
+                report.managerRemarks || "",
+
+                report.submittedAt || null
+
+            ]
+
+        );
+
+
+        const savedReport = result.rows[0];
+
+
+        // =========================================
+        // CONVERT DB RESPONSE TO ANGULAR FORMAT
+        // =========================================
+
+        const newReport = {
+
+            id:
+                savedReport.id,
+
+            employeeId:
+                savedReport.employee_id,
+
+            employeeName:
+                employee.name,
+
+            employeeEmail:
+                employee.email,
+
+            mentorId:
+                savedReport.mentor_id,
+
+            department:
+                savedReport.department || "",
+
+            reportDate:
+                savedReport.report_date,
+
+            task:
+                savedReport.task || "",
+
+            description:
+                savedReport.description || "",
+
+            progress:
+                savedReport.progress || "",
+
+            hoursWorked:
+                Number(savedReport.hours_worked) || 0,
+
+            status:
+                savedReport.status || "Pending",
+
+            managerRemarks:
+                savedReport.manager_remarks || "",
+
+            submittedAt:
+                savedReport.submitted_at
+
+        };
+
+
+        console.log(
+            "New Report Saved To PostgreSQL:",
+            newReport
+        );
+
+
+        // =========================================
+        // RESPONSE
+        // =========================================
+
+        res.status(201).json({
+
+            message:
+                "Report Saved Successfully",
+
+            report:
+                newReport
+
         });
+
+
+    } catch (error) {
+
+        console.error(
+            "CREATE REPORT DATABASE ERROR:",
+            error
+        );
+
+
+        res.status(500).json({
+
+            message:
+                "Unable to save report.",
+
+            error:
+                error.message
+
+        });
+
     }
-
-    //if no duplicate, save the new report into reports.json, by generating new ID. Also produce success message
-    
-    //generates new unique ID, for existing array
-    const newId =
-reports.length > 0
-? Math.max(...reports.map(r => r.id || 0)) + 1
-: 1;
-
-const newReport = {
-
-    id: newId,
-
-    employeeId: report.employeeId || 0,
-
-    employeeName: report.employeeName,
-
-    employeeEmail: report.employeeEmail || "",
-
-    mentorId: report.mentorId || 0,
-
-    department: report.department || "",
-
-    reportDate: report.reportDate,
-
-    task: report.task,
-
-    description: report.description || "",
-
-    progress: report.progress || "",
-
-    hoursWorked: report.hoursWorked || 0,
-
-    status: report.status || "Pending",
-
-    managerRemarks: report.managerRemarks || "",
-
-    submittedAt:
-        report.submittedAt || new Date().toISOString()
-
-};
-
-reports.push(newReport);
-
-    fs.writeFileSync(REPORT_FILE, JSON.stringify(reports, null, 2));
-
-    console.log("New Report:", newReport);
-
-res.json({
-
-    message: "Report Saved Successfully",
-
-    report: newReport
-
-});
 
 });
 
@@ -568,36 +710,115 @@ app.delete("/reports/:id", authenticateToken, (req, res) => {
 
 });
 
-//6. VIEW REPORTS
-app.get("/reports", authenticateToken, (req, res) => {
+//6. VIEW REPORTS - PostgreSQL
+
+app.get("/reports", authenticateToken, async (req, res) => {
 
     try {
 
-        let reports = [];
+        const result = await pool.query(`
 
-        if (fs.existsSync(REPORT_FILE)) {
+            SELECT
+                r.id,
+                r.employee_id,
+                u.name AS employee_name,
+                u.email AS employee_email,
+                r.mentor_id,
+                r.department,
+                r.report_date,
+                r.task,
+                r.description,
+                r.progress,
+                r.hours_worked,
+                r.status,
+                r.manager_remarks,
+                r.submitted_at
 
-            const data = fs.readFileSync(REPORT_FILE, "utf8");
+            FROM reports r
 
-            console.log("File Content:", data);
+            LEFT JOIN users u
+                ON r.employee_id = u.id
 
-            if (data.trim() !== "") {
-                reports = JSON.parse(data);
-            }
+            ORDER BY r.report_date DESC, r.id DESC
 
-        }
+        `);
 
-        console.log("Parsed Reports:", reports);
+
+        // Convert PostgreSQL fields
+        // to the format Angular already expects
+
+        const reports = result.rows.map(report => ({
+
+            id:
+                report.id,
+
+            employeeId:
+                report.employee_id,
+
+            employeeName:
+                report.employee_name || "",
+
+            employeeEmail:
+                report.employee_email || "",
+
+            mentorId:
+                report.mentor_id || null,
+
+            department:
+                report.department || "",
+
+            reportDate:
+                report.report_date || "",
+
+            task:
+                report.task || "",
+
+            description:
+                report.description || "",
+
+            progress:
+                report.progress || "",
+
+            hoursWorked:
+                Number(report.hours_worked) || 0,
+
+            status:
+                report.status || "Pending",
+
+            managerRemarks:
+                report.manager_remarks || "",
+
+            submittedAt:
+                report.submitted_at || ""
+
+        }));
+
+
+        console.log(
+            "Reports fetched from PostgreSQL:",
+            reports.length
+        );
+
 
         res.json(reports);
 
+
     } catch (error) {
 
-        console.error(error);
+        console.error(
+            "GET REPORTS DATABASE ERROR:",
+            error
+        );
+
 
         res.status(500).json({
-            message: "Error reading reports",
-            error: error.message
+
+            message:
+                "Error fetching reports from database",
+
+            error:
+                error.message
+
         });
 
     }
@@ -605,50 +826,248 @@ app.get("/reports", authenticateToken, (req, res) => {
 });
 
 
-//7. EXPORT EXCEL
-app.get("/export", authenticateToken, (req, res) => {
+//7. EXPORT EXCEL - PostgreSQL + SEARCH + DATE FILTER
+
+app.get("/export", authenticateToken, async (req, res) => {
 
     try {
 
-        const reports = getReports();
+        // ==========================================
+        // GET FILTER VALUES
+        // ==========================================
 
-        const worksheet = XLSX.utils.json_to_sheet(reports);
+        const search =
+            (req.query.search || "")
+                .toString()
+                .trim();
 
-        const workbook = XLSX.utils.book_new();
+        const fromDate =
+            (req.query.fromDate || "")
+                .toString()
+                .trim();
+
+        const toDate =
+            (req.query.toDate || "")
+                .toString()
+                .trim();
+
+
+        // ==========================================
+        // BUILD POSTGRESQL QUERY
+        // ==========================================
+
+        let query = `
+            SELECT
+                r.id,
+                u.name AS employee_name,
+                u.email AS employee_email,
+                r.report_date,
+                r.task,
+                r.department,
+                r.progress,
+                r.hours_worked,
+                r.status
+            FROM reports r
+            LEFT JOIN users u
+                ON r.employee_id = u.id
+            WHERE 1 = 1
+        `;
+
+        const values = [];
+        let parameterIndex = 1;
+
+
+        // ==========================================
+        // SEARCH FILTER
+        // ==========================================
+
+        if (search) {
+
+            query += `
+                AND (
+                    LOWER(COALESCE(u.name, '')) LIKE LOWER($${parameterIndex})
+                    OR LOWER(COALESCE(u.email, '')) LIKE LOWER($${parameterIndex})
+                    OR LOWER(COALESCE(r.task, '')) LIKE LOWER($${parameterIndex})
+                    OR LOWER(COALESCE(r.department, '')) LIKE LOWER($${parameterIndex})
+                    OR LOWER(COALESCE(r.status, '')) LIKE LOWER($${parameterIndex})
+                )
+            `;
+
+            values.push(`%${search}%`);
+
+            parameterIndex++;
+
+        }
+
+
+        // ==========================================
+        // FROM DATE FILTER
+        // ==========================================
+
+        if (fromDate) {
+
+            query += `
+                AND r.report_date >= $${parameterIndex}
+            `;
+
+            values.push(fromDate);
+
+            parameterIndex++;
+
+        }
+
+
+        // ==========================================
+        // TO DATE FILTER
+        // ==========================================
+
+        if (toDate) {
+
+            query += `
+                AND r.report_date <= $${parameterIndex}
+            `;
+
+            values.push(toDate);
+
+            parameterIndex++;
+
+        }
+
+
+        // ==========================================
+        // SORT
+        // ==========================================
+
+        query += `
+            ORDER BY r.report_date ASC, r.id ASC
+        `;
+
+
+        // ==========================================
+        // GET DATA FROM POSTGRESQL
+        // ==========================================
+
+        const result = await pool.query(
+            query,
+            values
+        );
+
+
+        // ==========================================
+        // CONVERT DATABASE DATA TO EXCEL DATA
+        // ==========================================
+
+        const exportData = result.rows.map(report => ({
+
+            "Employee Name":
+                report.employee_name || "",
+
+            "Employee Email":
+                report.employee_email || "",
+
+            "Report Date":
+                report.report_date || "",
+
+            "Task":
+                report.task || "",
+
+            "Department":
+                report.department || "",
+
+            "Progress":
+                report.progress || "",
+
+            "Hours Worked":
+                report.hours_worked || 0,
+
+            "Status":
+                report.status || "Pending"
+
+        }));
+
+
+        // ==========================================
+        // CREATE EXCEL WORKSHEET
+        // ==========================================
+
+        const worksheet =
+            XLSX.utils.json_to_sheet(exportData);
+
+
+        // ==========================================
+        // CREATE EXCEL WORKBOOK
+        // ==========================================
+
+        const workbook =
+            XLSX.utils.book_new();
+
 
         XLSX.utils.book_append_sheet(
+
             workbook,
+
             worksheet,
+
             "Reports"
+
         );
+
+
+        // ==========================================
+        // FILE PATH
+        // ==========================================
 
         const exportPath = path.join(
+
             __dirname,
+
             "InternTrack_Report.xlsx"
+
         );
 
+
+        // ==========================================
+        // WRITE EXCEL FILE
+        // ==========================================
+
         XLSX.writeFile(
+
             workbook,
+
             exportPath
+
         );
+
+
+        // ==========================================
+        // DOWNLOAD FILE
+        // ==========================================
 
         res.download(exportPath);
 
-    }
 
-    catch(error){
+    } catch (error) {
 
-        console.error(error);
+        console.error(
+
+            "EXPORT REPORT DATABASE ERROR:",
+
+            error
+
+        );
+
 
         res.status(500).json({
 
-            message:"Error exporting Excel"
+            message:
+                "Error exporting reports from PostgreSQL"
 
         });
 
     }
 
 });
+
 
 //8. IMPORT EXCEL
 app.post(
@@ -917,55 +1336,52 @@ console.log(
 
 //9. GET USERS
 
-app.get("/users", (req, res) => {
-
-    const users = getUsers();
-
-    res.json(users);
-
-});
-
-
-//10. EXPORT EMPLOYEES
-app.get("/export-users", (req, res) => {
+// 9. GET USERS - PostgreSQL
+app.get("/users", async (req, res) => {
 
     try {
 
-        const users = getUsers();
+        const result = await pool.query(`
+            SELECT
+                id,
+                name,
+                email,
+                role,
+                employment_type,
+                department,
+                joining_date,
+                status,
+                mentor_id,
+                archive_reason,
+                archived_on,
+                archived_by
+            FROM users
+            ORDER BY id;
+        `);
 
-        const exportData = users.map(user => ({
-
-            Name: user.name,
-            Email: user.email,
-            Role: user.role
-
+        const users = result.rows.map(user => ({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            employmentType: user.employment_type || "",
+            department: user.department || "",
+            joiningDate: user.joining_date || "",
+            status: user.status || "Active",
+            mentorId: user.mentor_id || null,
+            archiveReason: user.archive_reason || "",
+            archivedOn: user.archived_on || "",
+            archivedBy: user.archived_by || ""
         }));
 
-        const worksheet = XLSX.utils.json_to_sheet(exportData);
-
-        const workbook = XLSX.utils.book_new();
-
-        XLSX.utils.book_append_sheet(
-            workbook,
-            worksheet,
-            "Employees"
-        );
-
-        const filePath = path.join(
-            __dirname,
-            "InternTrack_Employees.xlsx"
-        );
-
-        XLSX.writeFile(workbook, filePath);
-
-        res.download(filePath);
+        res.json(users);
 
     } catch (error) {
 
-        console.error(error);
+        console.error("GET USERS DATABASE ERROR:", error);
 
         res.status(500).json({
-            message: "Unable to export employees."
+            message: "Error fetching employees from database"
         });
 
     }
@@ -973,124 +1389,424 @@ app.get("/export-users", (req, res) => {
 });
 
 
-//11. IMPORT EMPLOYEES
+//10. EXPORT EMPLOYEES - PostgreSQL
+
+app.get("/export-users", async (req, res) => {
+
+    try {
+
+        // Get employees directly from PostgreSQL
+
+        const result = await pool.query(`
+
+            SELECT
+                name,
+                email,
+                role,
+                employment_type,
+                department,
+                joining_date,
+                status
+
+            FROM users
+
+            ORDER BY id
+
+        `);
+
+
+        // Convert database fields to Excel columns
+
+        const exportData = result.rows.map(user => ({
+
+            Name:
+                user.name || "",
+
+            Email:
+                user.email || "",
+
+            Role:
+                user.role || "",
+
+            "Employment Type":
+                user.employment_type || "",
+
+            Department:
+                user.department || "",
+
+            "Joining Date":
+                user.joining_date || "",
+
+            Status:
+                user.status || "Active"
+
+        }));
+
+
+        // Create Excel worksheet
+
+        const worksheet =
+            XLSX.utils.json_to_sheet(exportData);
+
+
+        // Create Excel workbook
+
+        const workbook =
+            XLSX.utils.book_new();
+
+
+        XLSX.utils.book_append_sheet(
+
+            workbook,
+
+            worksheet,
+
+            "Employees"
+
+        );
+
+
+        // File path
+
+        const filePath = path.join(
+
+            __dirname,
+
+            "InternTrack_Employees.xlsx"
+
+        );
+
+
+        // Generate Excel file
+
+        XLSX.writeFile(
+
+            workbook,
+
+            filePath
+
+        );
+
+
+        // Send file to frontend
+
+        res.download(filePath);
+
+
+    } catch (error) {
+
+        console.error(
+
+            "EXPORT EMPLOYEES DATABASE ERROR:",
+
+            error
+
+        );
+
+
+        res.status(500).json({
+
+            message:
+                "Unable to export employees."
+
+        });
+
+    }
+
+});
+
+
+//11. IMPORT EMPLOYEES - PostgreSQL
 
 app.post(
     "/import-users",
     upload.single("file"),
-    (req, res) => {
+    async (req, res) => {
 
         try {
 
-            const workbook = XLSX.readFile(req.file.path);
+            // ==========================================
+            // CHECK FILE
+            // ==========================================
 
-            const sheetName = workbook.SheetNames[0];
+            if (!req.file) {
 
-            const worksheet = workbook.Sheets[sheetName];
+                return res.status(400).json({
 
-            const importedUsers =
-                XLSX.utils.sheet_to_json(worksheet);
-
-            let users = getUsers();
-
-            // Remove empty rows
-            const validUsers = importedUsers.filter(user =>
-
-                user.Name &&
-                user.Email &&
-                user.Role
-
-            );
-
-            // Remove duplicate rows inside Excel
-            const seenEmails = new Set();
-
-            const uniqueUsers = validUsers.filter(user => {
-
-                const email = user.Email
-                    .toString()
-                    .trim()
-                    .toLowerCase();
-
-                if (seenEmails.has(email)) {
-
-                    return false;
-
-                }
-
-                seenEmails.add(email);
-
-                return true;
-
-            });
-
-            // Remove users already present in database
-            const newUsers = uniqueUsers.filter(imported =>
-
-                !users.find(existing =>
-
-                    existing.email.toLowerCase() ===
-                    imported.Email.toLowerCase()
-
-                )
-
-            );
-
-            // Generate IDs
-            let nextId =
-                users.length > 0
-                    ? Math.max(...users.map(u => u.id || 0)) + 1
-                    : 1;
-
-            newUsers.forEach(user => {
-
-                users.push({
-
-                    id: nextId++,
-
-                    name: user.Name,
-
-                    email: user.Email,
-
-                    password: "123456",
-
-                    role: user.Role.toLowerCase()
+                    message: "No file uploaded"
 
                 });
 
-            });
+            }
 
-            saveUsers(users);
+
+            // ==========================================
+            // READ EXCEL FILE
+            // ==========================================
+
+            const workbook = XLSX.readFile(
+                req.file.path
+            );
+
+            const sheetName =
+                workbook.SheetNames[0];
+
+            const worksheet =
+                workbook.Sheets[sheetName];
+
+            const importedUsers =
+                XLSX.utils.sheet_to_json(
+                    worksheet,
+                    {
+                        defval: ""
+                    }
+                );
+
+
+            // ==========================================
+            // CHECK EMPTY FILE
+            // ==========================================
+
+            if (importedUsers.length === 0) {
+
+                return res.status(400).json({
+
+                    message: "Excel file is empty"
+
+                });
+
+            }
+
+
+            // ==========================================
+            // REMOVE EMPTY ROWS
+            // ==========================================
+
+            const validUsers =
+                importedUsers.filter(user =>
+
+                    user.Name &&
+                    user.Email &&
+                    user.Role
+
+                );
+
+
+            // ==========================================
+            // REMOVE DUPLICATES INSIDE EXCEL
+            // ==========================================
+
+            const seenEmails = new Set();
+
+            const uniqueUsers =
+                validUsers.filter(user => {
+
+                    const email =
+                        user.Email
+                            .toString()
+                            .trim()
+                            .toLowerCase();
+
+
+                    if (seenEmails.has(email)) {
+
+                        return false;
+
+                    }
+
+
+                    seenEmails.add(email);
+
+                    return true;
+
+                });
+
+
+            // ==========================================
+            // INSERT NEW USERS INTO POSTGRESQL
+            // ==========================================
+
+            let importedCount = 0;
+
+            let skippedCount = 0;
+
+
+            for (const user of uniqueUsers) {
+
+                const name =
+                    user.Name
+                        .toString()
+                        .trim();
+
+                const email =
+                    user.Email
+                        .toString()
+                        .trim();
+
+                const role =
+                    user.Role
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+
+
+                // --------------------------------------
+                // CHECK EMAIL IN POSTGRESQL
+                // --------------------------------------
+
+                const existing =
+                    await pool.query(
+
+                        `
+                        SELECT id
+                        FROM users
+                        WHERE LOWER(TRIM(email))
+                              = LOWER(TRIM($1))
+                        LIMIT 1
+                        `,
+
+                        [email]
+
+                    );
+
+
+                if (existing.rows.length > 0) {
+
+                    skippedCount++;
+
+                    continue;
+
+                }
+
+
+                // --------------------------------------
+                // INSERT INTO POSTGRESQL
+                // --------------------------------------
+
+                await pool.query(
+
+                    `
+                    INSERT INTO users
+                    (
+                        name,
+                        email,
+                        password,
+                        role,
+                        employment_type,
+                        department,
+                        joining_date,
+                        status
+                    )
+
+                    VALUES
+                    (
+                        $1,
+                        $2,
+                        $3,
+                        $4,
+                        $5,
+                        $6,
+                        $7,
+                        'Active'
+                    )
+                    `,
+
+                    [
+
+                        name,
+
+                        email,
+
+                        "123456",
+
+                        role,
+
+                        user["Employment Type"] ||
+                        user.employmentType ||
+                        null,
+
+                        user.Department ||
+                        user.department ||
+                        null,
+
+                        user["Joining Date"] ||
+                        user.joiningDate ||
+                        null
+
+                    ]
+
+                );
+
+
+                importedCount++;
+
+            }
+
+
+            // ==========================================
+            // DELETE TEMPORARY EXCEL FILE
+            // ==========================================
 
             if (req.file) {
 
-                fs.unlinkSync(req.file.path);
+                fs.unlinkSync(
+                    req.file.path
+                );
 
             }
+
+
+            // ==========================================
+            // RESPONSE
+            // ==========================================
 
             res.json({
 
                 success: true,
 
-                imported: newUsers.length,
+                message:
+                    "Employee import completed",
+
+                imported:
+                    importedCount,
 
                 skipped:
-
-                    validUsers.length -
-
-                    newUsers.length
+                    skippedCount
 
             });
+
 
         }
 
         catch (error) {
 
-            console.error(error);
+            console.error(
+                "IMPORT USERS DATABASE ERROR:",
+                error
+            );
+
+
+            // Delete temporary file
+
+            if (
+                req.file &&
+                fs.existsSync(req.file.path)
+            ) {
+
+                fs.unlinkSync(
+                    req.file.path
+                );
+
+            }
+
 
             res.status(500).json({
 
-                message: "Employee import failed"
+                message:
+                    "Employee import failed",
+
+                error:
+                    error.message
 
             });
 
@@ -1101,210 +1817,502 @@ app.post(
 );
 
 
-//12. CREATE USER
 
-app.post("/users", (req, res) => {
+//13. UPDATE USER - PostgreSQL
 
-    const users = getUsers();
+app.put("/users/:id", async (req, res) => {
 
-    const newUser = req.body;
+    try {
 
-    const exists = users.find(
+        const id = parseInt(req.params.id);
 
-        user =>
-            user.email.toLowerCase() ===
-            newUser.email.toLowerCase()
+        if (isNaN(id)) {
 
-    );
+            return res.status(400).json({
 
-    if (exists) {
+                message: "Invalid employee ID"
 
-        return res.status(400).json({
+            });
 
-            message: "Email already exists"
+        }
+
+        const {
+            name,
+            email,
+            role,
+            employmentType,
+            department,
+            joiningDate,
+            mentorId,
+            status
+        } = req.body;
+
+
+        // Check if employee exists
+
+        const existingUser = await pool.query(
+
+            `
+            SELECT *
+            FROM users
+            WHERE id = $1
+            `,
+
+            [id]
+
+        );
+
+
+        if (existingUser.rows.length === 0) {
+
+            return res.status(404).json({
+
+                message: "Employee not found"
+
+            });
+
+        }
+
+
+        // Check if another user already has this email
+
+        const duplicateEmail = await pool.query(
+
+            `
+            SELECT id
+            FROM users
+            WHERE LOWER(email) = LOWER($1)
+            AND id <> $2
+            `,
+
+            [email, id]
+
+        );
+
+
+        if (duplicateEmail.rows.length > 0) {
+
+            return res.status(400).json({
+
+                message: "Email already exists"
+
+            });
+
+        }
+
+
+        // Update PostgreSQL
+
+        const result = await pool.query(
+
+            `
+            UPDATE users
+
+            SET
+                name = $1,
+                email = $2,
+                role = $3,
+                employment_type = $4,
+                department = $5,
+                joining_date = $6,
+                mentor_id = $7,
+                status = $8
+
+            WHERE id = $9
+
+            RETURNING
+                id,
+                name,
+                email,
+                role,
+                employment_type,
+                department,
+                joining_date,
+                status,
+                mentor_id,
+                archive_reason,
+                archived_on,
+                archived_by
+            `,
+
+            [
+                name,
+                email,
+                role,
+                employmentType || null,
+                department || null,
+                joiningDate || null,
+                mentorId || null,
+                status || "Active",
+                id
+            ]
+
+        );
+
+
+        const user = result.rows[0];
+
+
+        // Convert PostgreSQL names to Angular names
+
+        const formattedUser = {
+
+            id: user.id,
+
+            name: user.name,
+
+            email: user.email,
+
+            role: user.role,
+
+            employmentType:
+                user.employment_type || "",
+
+            department:
+                user.department || "",
+
+            joiningDate:
+                user.joining_date || "",
+
+            status:
+                user.status || "Active",
+
+            mentorId:
+                user.mentor_id || null,
+
+            archiveReason:
+                user.archive_reason || "",
+
+            archivedOn:
+                user.archived_on || "",
+
+            archivedBy:
+                user.archived_by || ""
+
+        };
+
+
+        res.json({
+
+            message: "Employee Updated",
+
+            user: formattedUser
+
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "UPDATE USER DATABASE ERROR:",
+            error
+        );
+
+        res.status(500).json({
+
+            message: "Error updating employee"
 
         });
 
     }
 
-    newUser.id =
-        users.length > 0
-            ? Math.max(...users.map(u => u.id || 0)) + 1
-            : 1;
-
-    // Default values
-
-    newUser.department =
-        newUser.department || "";
-
-    newUser.employmentType =
-        newUser.employmentType || "";
-
-    newUser.joiningDate =
-        newUser.joiningDate || "";
-
-    newUser.status =
-        "Active";
-
-    newUser.archiveReason =
-        "";
-
-    newUser.archivedOn =
-        "";
-
-    newUser.archivedBy =
-        "";
-
-    users.push(newUser);
-
-    saveUsers(users);
-
-    res.json({
-
-        message: "Employee Added",
-
-        user: newUser
-
-    });
-
 });
 
-//13. UPDATE USER
-app.put("/users/:id", (req, res) => {
 
-    const id = parseInt(req.params.id);
+//14. ARCHIVE USER - PostgreSQL
 
-    const users = getUsers();
+app.put("/users/archive/:id", async (req, res) => {
 
-    const index =
-        users.findIndex(user => user.id === id);
+    try {
 
-    if (index === -1) {
+        const id = parseInt(req.params.id);
 
-        return res.status(404).json({
+        if (isNaN(id)) {
 
-            message: "Employee not found"
+            return res.status(400).json({
+                message: "Invalid employee ID"
+            });
+
+        }
+
+        const {
+            archiveReason,
+            archivedBy
+        } = req.body;
+
+
+        // Check employee exists
+
+        const existingUser = await pool.query(
+
+            `
+            SELECT id
+            FROM users
+            WHERE id = $1
+            `,
+
+            [id]
+
+        );
+
+
+        if (existingUser.rows.length === 0) {
+
+            return res.status(404).json({
+                message: "Employee not found"
+            });
+
+        }
+
+
+        // Archive employee in PostgreSQL
+
+        const result = await pool.query(
+
+            `
+            UPDATE users
+
+            SET
+                status = 'Archived',
+                archive_reason = $1,
+                archived_on = CURRENT_DATE,
+                archived_by = $2
+
+            WHERE id = $3
+
+            RETURNING
+                id,
+                name,
+                email,
+                role,
+                employment_type,
+                department,
+                joining_date,
+                status,
+                mentor_id,
+                archive_reason,
+                archived_on,
+                archived_by
+            `,
+
+            [
+                archiveReason || "Archived by Admin",
+                archivedBy || "Admin",
+                id
+            ]
+
+        );
+
+
+        const user = result.rows[0];
+
+
+        // Convert PostgreSQL fields to Angular fields
+
+        const formattedUser = {
+
+            id: user.id,
+
+            name: user.name,
+
+            email: user.email,
+
+            role: user.role,
+
+            employmentType:
+                user.employment_type || "",
+
+            department:
+                user.department || "",
+
+            joiningDate:
+                user.joining_date || "",
+
+            status:
+                user.status || "Archived",
+
+            mentorId:
+                user.mentor_id || null,
+
+            archiveReason:
+                user.archive_reason || "",
+
+            archivedOn:
+                user.archived_on || "",
+
+            archivedBy:
+                user.archived_by || ""
+
+        };
+
+
+        res.json({
+
+            message: "Employee Archived",
+
+            user: formattedUser
+
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "ARCHIVE USER DATABASE ERROR:",
+            error
+        );
+
+        res.status(500).json({
+
+            message: "Error archiving employee"
 
         });
 
     }
 
-    users[index] = {
-
-        ...users[index],
-
-        ...req.body,
-
-        id
-
-    };
-
-    saveUsers(users);
-
-    res.json({
-
-        message: "Employee Updated",
-
-        user: users[index]
-
-    });
-
 });
 
 
-//14. ARCHIVE USER
+//15. RESTORE USER - PostgreSQL
 
-app.put("/users/archive/:id", (req, res) => {
+app.put("/users/restore/:id", async (req, res) => {
 
-    const id = parseInt(req.params.id);
+    try {
 
-    const {
+        const id = parseInt(req.params.id);
 
-        archiveReason,
+        if (isNaN(id)) {
 
-        archivedBy
+            return res.status(400).json({
+                message: "Invalid employee ID"
+            });
 
-    } = req.body;
+        }
 
-    const users = getUsers();
+        // Check employee exists
 
-    const user = users.find(
+        const existingUser = await pool.query(
 
-        u => u.id === id
+            `
+            SELECT id
+            FROM users
+            WHERE id = $1
+            `,
 
-    );
+            [id]
 
-    if (!user) {
+        );
 
-        return res.status(404).json({
+        if (existingUser.rows.length === 0) {
 
-            message: "Employee not found"
+            return res.status(404).json({
+                message: "Employee not found"
+            });
+
+        }
+
+        // Restore employee in PostgreSQL
+
+        const result = await pool.query(
+
+            `
+            UPDATE users
+
+            SET
+                status = 'Active',
+                archive_reason = NULL,
+                archived_on = NULL,
+                archived_by = NULL
+
+            WHERE id = $1
+
+            RETURNING
+                id,
+                name,
+                email,
+                role,
+                employment_type,
+                department,
+                joining_date,
+                status,
+                mentor_id,
+                archive_reason,
+                archived_on,
+                archived_by
+            `,
+
+            [id]
+
+        );
+
+        const user = result.rows[0];
+
+        // Convert PostgreSQL fields to Angular fields
+
+        const formattedUser = {
+
+            id: user.id,
+
+            name: user.name,
+
+            email: user.email,
+
+            role: user.role,
+
+            employmentType:
+                user.employment_type || "",
+
+            department:
+                user.department || "",
+
+            joiningDate:
+                user.joining_date || "",
+
+            status:
+                user.status || "Active",
+
+            mentorId:
+                user.mentor_id || null,
+
+            archiveReason:
+                user.archive_reason || "",
+
+            archivedOn:
+                user.archived_on || "",
+
+            archivedBy:
+                user.archived_by || ""
+
+        };
+
+        res.json({
+
+            message: "Employee Restored",
+
+            user: formattedUser
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "RESTORE USER DATABASE ERROR:",
+            error
+        );
+
+        res.status(500).json({
+
+            message: "Error restoring employee"
 
         });
 
     }
 
-    user.status = "Archived";
-
-    user.archiveReason =
-        archiveReason || "";
-
-    user.archivedOn =
-        new Date().toISOString().split("T")[0];
-
-    user.archivedBy =
-        archivedBy || "Admin";
-
-    saveUsers(users);
-
-    res.json({
-
-        message: "Employee Archived"
-
-    });
-
 });
 
 
-//15. RESTORE USER
 
-app.put("/users/restore/:id", (req, res) => {
-
-    const id = parseInt(req.params.id);
-
-    const users = getUsers();
-
-    const user =
-        users.find(u => u.id === id);
-
-    if (!user) {
-
-        return res.status(404).json({
-
-            message: "Employee not found"
-
-        });
-
-    }
-
-    user.status = "Active";
-
-    user.archiveReason = "";
-
-    user.archivedOn = "";
-
-    user.archivedBy = "";
-
-    saveUsers(users);
-
-    res.json({
-
-        message: "Employee Restored"
-
-    });
-
-});
-
+// DB TEST
 app.get('/db-test', async (req, res) => {
 
     try {

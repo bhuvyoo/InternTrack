@@ -134,14 +134,14 @@
     "employeeEmail": "hrithik@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-05",
+    "reportDate": "2026-08-04T18:30:00.000Z",
     "task": "kdhw",
     "description": "njjjj",
     "progress": "jjjj",
     "hoursWorked": 4,
-    "status": "Rejected",
-    "managerRemarks": "jhhhkjkj",
-    "submittedAt": "2026-08-05T06:31:58.760Z"
+    "status": "Approved",
+    "managerRemarks": "hbivbkbijn",
+    "submittedAt": "2026-08-05T01:01:58.760Z"
   },
   {
     "id": 11,
@@ -198,14 +198,14 @@
     "employeeEmail": "hrithik@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-05",
+    "reportDate": "2026-08-04T18:30:00.000Z",
     "task": "djn",
     "description": "fekfj",
     "progress": "dff",
     "hoursWorked": 4,
     "status": "Approved",
-    "managerRemarks": "k",
-    "submittedAt": "2026-08-06T05:18:35.254Z"
+    "managerRemarks": "hbkbk",
+    "submittedAt": "2026-08-05T23:48:35.254Z"
   },
   {
     "id": 15,
@@ -214,14 +214,14 @@
     "employeeEmail": "hrithik@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-04",
+    "reportDate": "2026-08-03T18:30:00.000Z",
     "task": "f",
     "description": "f",
     "progress": "f",
     "hoursWorked": 4,
     "status": "Approved",
-    "managerRemarks": "vuv",
-    "submittedAt": "2026-08-06T05:18:50.373Z"
+    "managerRemarks": "hbivbkbijn",
+    "submittedAt": "2026-08-05T23:48:50.373Z"
   },
   {
     "id": 16,
@@ -230,14 +230,14 @@
     "employeeEmail": "bhuvana@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-06",
+    "reportDate": "2026-08-05T18:30:00.000Z",
     "task": "ddfv",
     "description": "dbhhsvvvs",
     "progress": "d",
     "hoursWorked": 4,
-    "status": "Rejected",
-    "managerRemarks": "iuguy",
-    "submittedAt": "2026-08-06T05:19:19.032Z"
+    "status": "Approved",
+    "managerRemarks": "bhjhbib",
+    "submittedAt": "2026-08-05T23:49:19.032Z"
   },
   {
     "id": 18,
@@ -262,14 +262,14 @@
     "employeeEmail": "bhuvana@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-07",
+    "reportDate": "2026-08-06T18:30:00.000Z",
     "task": "ckc",
-    "description": "cjccevsvnsvghvjh",
+    "description": "cjccevsvnsv",
     "progress": "cdss",
     "hoursWorked": 4,
     "status": "Approved",
-    "managerRemarks": "hbfjbc\n",
-    "submittedAt": "2026-08-07T16:42:30.207Z"
+    "managerRemarks": "bhjhbib",
+    "submittedAt": "2026-08-07T11:12:30.207Z"
   },
   {
     "id": 20,
@@ -278,14 +278,14 @@
     "employeeEmail": "bhuvana@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-07",
+    "reportDate": "2026-08-06T18:30:00.000Z",
     "task": "wf",
     "description": "ve",
     "progress": "ev",
     "hoursWorked": 5,
     "status": "Approved",
-    "managerRemarks": "hbfjbc\n",
-    "submittedAt": "2026-08-07T17:20:56.319Z"
+    "managerRemarks": "bhjhbib",
+    "submittedAt": "2026-08-07T11:50:56.319Z"
   },
   {
     "id": 21,
@@ -294,14 +294,14 @@
     "employeeEmail": "bhuvana@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-06",
+    "reportDate": "2026-08-05T18:30:00.000Z",
     "task": "giau",
     "description": "hbdc",
     "progress": "dhcbac",
     "hoursWorked": 4,
     "status": "Approved",
-    "managerRemarks": "hbfjbc\n",
-    "submittedAt": "2026-08-07T17:25:54.078Z"
+    "managerRemarks": "bhjhbib",
+    "submittedAt": "2026-08-07T11:55:54.078Z"
   },
   {
     "id": 22,
@@ -310,14 +310,14 @@
     "employeeEmail": "bhuvana@gmail.com",
     "mentorId": 3,
     "department": "Engineering",
-    "reportDate": "2026-08-04",
+    "reportDate": "2026-08-03T18:30:00.000Z",
     "task": "sc",
     "description": "wcer",
     "progress": "ev",
     "hoursWorked": 3,
     "status": "Approved",
-    "managerRemarks": "hbfjbc\n",
-    "submittedAt": "2026-08-07T17:26:55.218Z"
+    "managerRemarks": "bhjhbib",
+    "submittedAt": "2026-08-07T11:56:55.218Z"
   },
   {
     "id": 23,
