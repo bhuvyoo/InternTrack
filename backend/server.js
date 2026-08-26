@@ -9,8 +9,7 @@ const multer = require("multer");
 //CONSTANTS
 const app = express();
 const path = require("path");
-const REPORT_FILE = path.join(__dirname, "reports.json");
-const USER_FILE = path.join(__dirname, "users.json");
+
 
 //JWT
 const jwt = require("jsonwebtoken");
@@ -27,26 +26,6 @@ app.use(cors());
 app.use(express.json());
 
 //HELPER FUNCTIONS
-//1.READ REPORTS
-function getReports() {
-
-    let reports = [];
-
-    if (fs.existsSync(REPORT_FILE)) {
-
-        const data = fs.readFileSync(REPORT_FILE, "utf8");
-
-        if (data.trim() !== "") {
-
-            reports = JSON.parse(data);
-
-        }
-
-    }
-
-    return reports;
-
-}
 
 //2. FORMAT EXCEL TO DATE
 function formatExcelDate(dateString) {
@@ -62,114 +41,6 @@ function formatExcelDate(dateString) {
     return `20${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
-//3. CHECK IF REPORTS ALREADY EXISTS
-function isDuplicate(existingReport, importedReport) {
-
-    const existingEmployee =
-        (existingReport.employeeName || "")
-            .trim()
-            .toLowerCase();
-
-    const importedEmployee =
-        (importedReport.employeeName || "")
-            .trim()
-            .toLowerCase();
-
-    const existingTask =
-        (existingReport.task || "")
-            .trim()
-            .toLowerCase();
-
-    const importedTask =
-        (importedReport.task || "")
-            .trim()
-            .toLowerCase();
-
-    const existingDate =
-        existingReport.reportDate || "";
-
-    const importedDate =
-        importedReport.reportDate || "";
-
-    return (
-
-        existingEmployee === importedEmployee &&
-
-        existingTask === importedTask &&
-
-        existingDate === importedDate
-
-    );
-
-}
-
-//4. CLEAN REPORTS JSON
-function cleanReports(reports) {
-
-    const seen = new Set();
-
-    return reports.filter(report => {
-
-        const key = [
-
-            (report.employeeName || "")
-                .trim()
-                .toLowerCase(),
-
-            report.reportDate || "",
-
-            (report.task || "")
-                .trim()
-                .toLowerCase()
-
-        ].join("_");
-
-        if (seen.has(key)) {
-
-            return false;
-
-        }
-
-        seen.add(key);
-
-        return true;
-
-    });
-
-}
-
-//5. READ USERS
-function getUsers() {
-
-    let users = [];
-
-    if (fs.existsSync(USER_FILE)) {
-
-        const data = fs.readFileSync(USER_FILE, "utf8");
-
-        if (data.trim() !== "") {
-
-            users = JSON.parse(data);
-
-        }
-
-    }
-
-    return users;
-
-}
-
-function saveUsers(users) {
-
-    fs.writeFileSync(
-
-        USER_FILE,
-
-        JSON.stringify(users, null, 2)
-
-    );
-
-}
 
 function authenticateToken(req, res, next) {
 
@@ -585,125 +456,316 @@ app.post("/reports", authenticateToken, async (req, res) => {
 
 });
 
-//4. UPDATE REPORT
-app.put("/reports/:id", authenticateToken, (req, res) => {
+//4. UPDATE REPORT - PostgreSQL
+
+app.put("/reports/:id", authenticateToken, async (req, res) => {
 
     try {
-        //converts the id from string to integer, to match the id in reports.json
+
         const id = parseInt(req.params.id);
+
+        if (isNaN(id)) {
+
+            return res.status(400).json({
+
+                message: "Invalid report ID"
+
+            });
+
+        }
+
 
         const updatedReport = req.body;
 
-        let reports = [];
 
-        //to check the existance of the file at REPORT_FILE path and read its content if present
-        if (fs.existsSync(REPORT_FILE)) {
+        // =========================================
+        // CHECK REPORT EXISTS
+        // =========================================
 
-            const data = fs.readFileSync(REPORT_FILE, "utf8");
+        const existingResult = await pool.query(
 
-            //to remove the whitespace
-            if (data.trim() !== "") {
+            `
+            SELECT id
+            FROM reports
+            WHERE id = $1
+            `,
 
-                reports = JSON.parse(data);
+            [id]
 
-            }
-
-        }
-
-        //to find the reports at that index position
-        const index = reports.findIndex(r => r.id === id);
-        if (index === -1) {
-            return res.status(404).json({
-                message: "Report not found"
-            });
-        }
-
-        reports[index] = {
-
-    ...reports[index],
-
-    ...updatedReport,
-
-    id
-
-};
-
-        fs.writeFileSync(
-            REPORT_FILE,
-            JSON.stringify(reports, null, 2)
         );
 
-        console.log("Updated Report:", updatedReport);
+
+        if (existingResult.rows.length === 0) {
+
+            return res.status(404).json({
+
+                message: "Report not found"
+
+            });
+
+        }
+
+
+        // =========================================
+        // UPDATE REPORT
+        // =========================================
+
+        const result = await pool.query(
+
+            `
+            UPDATE reports
+
+            SET
+
+                employee_id = $1,
+                mentor_id = $2,
+                report_date = $3,
+                task = $4,
+                department = $5,
+                description = $6,
+                progress = $7,
+                hours_worked = $8,
+                status = $9,
+                manager_remarks = $10
+
+            WHERE id = $11
+
+            RETURNING *
+
+            `,
+
+            [
+
+                updatedReport.employeeId || null,
+
+                updatedReport.mentorId || null,
+
+                updatedReport.reportDate,
+
+                updatedReport.task || "",
+
+                updatedReport.department || "",
+
+                updatedReport.description || "",
+
+                updatedReport.progress || "",
+
+                Number(updatedReport.hoursWorked) || 0,
+
+                updatedReport.status || "Pending",
+
+                updatedReport.managerRemarks || "",
+
+                id
+
+            ]
+
+        );
+
+
+        const savedReport = result.rows[0];
+
+
+        // =========================================
+        // GET EMPLOYEE DETAILS
+        // =========================================
+
+        const employeeResult = await pool.query(
+
+            `
+            SELECT
+                name,
+                email
+            FROM users
+            WHERE id = $1
+            `,
+
+            [savedReport.employee_id]
+
+        );
+
+
+        const employee =
+            employeeResult.rows[0] || {};
+
+
+        // =========================================
+        // CONVERT DATABASE FORMAT
+        // TO ANGULAR FORMAT
+        // =========================================
+
+        const formattedReport = {
+
+            id:
+                savedReport.id,
+
+            employeeId:
+                savedReport.employee_id,
+
+            employeeName:
+                employee.name || "",
+
+            employeeEmail:
+                employee.email || "",
+
+            mentorId:
+                savedReport.mentor_id || null,
+
+            department:
+                savedReport.department || "",
+
+            reportDate:
+                savedReport.report_date || "",
+
+            task:
+                savedReport.task || "",
+
+            description:
+                savedReport.description || "",
+
+            progress:
+                savedReport.progress || "",
+
+            hoursWorked:
+                Number(savedReport.hours_worked) || 0,
+
+            status:
+                savedReport.status || "Pending",
+
+            managerRemarks:
+                savedReport.manager_remarks || "",
+
+            submittedAt:
+                savedReport.submitted_at || ""
+
+        };
+
+
+        console.log(
+            "Updated Report in PostgreSQL:",
+            formattedReport
+        );
+
 
         res.json({
-            message: "Report Updated Successfully"
+
+            message:
+                "Report Updated Successfully",
+
+            report:
+                formattedReport
+
         });
 
-    }
-    catch (error) {
 
-        console.error(error);
+    } catch (error) {
+
+        console.error(
+            "UPDATE REPORT DATABASE ERROR:",
+            error
+        );
+
 
         res.status(500).json({
-            message: "Error updating report"
+
+            message:
+                "Error updating report",
+
+            error:
+                error.message
+
         });
 
     }
 
 });
 
-//5. DELETE REPORT
-app.delete("/reports/:id", authenticateToken, (req, res) => {
+//5. DELETE REPORT - PostgreSQL
+
+app.delete("/reports/:id", authenticateToken, async (req, res) => {
 
     try {
-        //converts the id from string to integer, to match the id in reports.json
+
         const id = parseInt(req.params.id);
 
-        let reports = [];
+        if (isNaN(id)) {
 
-        //to check the existance of the file at REPORT_FILE path
-        if (fs.existsSync(REPORT_FILE)) {
-            //if present, read its contents
-            const data = fs.readFileSync(REPORT_FILE, "utf8");
-
-            if (data.trim() !== "") {
-
-                reports = JSON.parse(data);
-
-            }
-
-        }
-        //to find the reports at that index position
-        const index = reports.findIndex(report => report.id === id);
-
-        //if the report is not found, return 404 error
-        if (index === -1) {
-
-            return res.status(404).json({
-                message: "Report not found"
+            return res.status(400).json({
+                message: "Invalid report ID"
             });
 
         }
 
-        reports.splice(index, 1);
 
-        fs.writeFileSync(
-            REPORT_FILE,
-            JSON.stringify(reports, null, 2)
+        // Check whether report exists
+
+        const existingResult = await pool.query(
+
+            `
+            SELECT id
+            FROM reports
+            WHERE id = $1
+            `,
+
+            [id]
+
         );
 
+
+        if (existingResult.rows.length === 0) {
+
+            return res.status(404).json({
+
+                message: "Report not found"
+
+            });
+
+        }
+
+
+        // Delete from PostgreSQL
+
+        await pool.query(
+
+            `
+            DELETE FROM reports
+            WHERE id = $1
+            `,
+
+            [id]
+
+        );
+
+
+        console.log(
+            `Report ${id} deleted from PostgreSQL`
+        );
+
+
         res.json({
-            message: "Report Deleted Successfully"
+
+            message:
+                "Report deleted successfully"
+
         });
 
-    }
 
-    catch (error) {
+    } catch (error) {
 
-        console.error(error);
+        console.error(
+            "DELETE REPORT DATABASE ERROR:",
+            error
+        );
+
 
         res.status(500).json({
-            message: "Error deleting report"
+
+            message:
+                "Error deleting report",
+
+            error:
+                error.message
+
         });
 
     }
@@ -1068,263 +1130,498 @@ app.get("/export", authenticateToken, async (req, res) => {
 
 });
 
+//8. IMPORT EXCEL - PostgreSQL
 
-//8. IMPORT EXCEL
 app.post(
     "/import",
     authenticateToken,
     authorizeRoles("admin"),
     upload.single("file"),
-    (req, res) => {
+    async (req, res) => {
 
         try {
 
-            console.log("Import Route Hit");
+            // ==========================================
+            // CHECK FILE
+            // ==========================================
 
-            //8.1 Read Excel
-            const workbook = XLSX.readFile(req.file.path, {
-                cellDates: true
-            });
+            if (!req.file) {
 
-            const sheetName = workbook.SheetNames[0];
+                return res.status(400).json({
 
-            const worksheet = workbook.Sheets[sheetName];
+                    message: "No file uploaded"
+
+                });
+
+            }
+
+
+            // ==========================================
+            // READ EXCEL
+            // ==========================================
+
+            const workbook = XLSX.readFile(
+                req.file.path,
+                {
+                    cellDates: true
+                }
+            );
+
+
+            const sheetName =
+                workbook.SheetNames[0];
+
+            const worksheet =
+                workbook.Sheets[sheetName];
+
 
             const importedReports =
-            XLSX.utils.sheet_to_json(worksheet, {
-        raw: false
-    });
-            console.log(importedReports);
-            console.log(typeof importedReports[0]["Report Date"]);
-            console.log(importedReports[0]["Report Date"]);
+                XLSX.utils.sheet_to_json(
 
-            //8.2 Normalize Excel columns
-            const normalizedReports = importedReports.map(report => ({
+                    worksheet,
 
-    employeeId: 0,
-
-    employeeName:
-        report["Employee Name"]?.toString().trim() || "",
-
-    employeeEmail:
-        report["Employee Email"]?.toString().trim() || "",
-
-    department:
-        report["Department"]?.toString().trim() || "",
-
-    reportDate:
-        formatExcelDate(report["Report Date"]),
-
-    task:
-        report["Task"]?.toString().trim() || "",
-
-    description:
-        report["Description"]?.toString().trim() || "",
-
-    progress:
-        report["Progress"]?.toString().trim() || "",
-
-    hoursWorked:
-        Number(report["Hours Worked"]) || 0,
-
-    status:
-        report["Status"]?.toString().trim() || "Pending",
-
-    managerRemarks:
-        report["Manager Remarks"]?.toString().trim() || "",
-
-    submittedAt:
-        new Date().toISOString()
-
-}));
-            console.log("Normalized Reports:");
-            console.log(normalizedReports);
-
-            //8.3 Read existing reports
-            let reports = [];
-
-            if (fs.existsSync(REPORT_FILE)) {
-
-                const data = fs.readFileSync(REPORT_FILE, "utf8");
-
-                if (data.trim() !== "") {
-
-                    reports = JSON.parse(data);
-
-                }
-
-            }
-
-            //8.4 Remove empty rows
-            const users = getUsers();
-
-const validReports = normalizedReports.filter(report => {
-
-    const employeeExists = users.some(user =>
-
-        user.email.toLowerCase() ===
-        report.employeeEmail.toLowerCase()
-
-    );
-
-    return (
-
-        employeeExists &&
-
-        report.employeeName &&
-        report.employeeEmail &&
-        report.reportDate &&
-        report.task &&
-        report.description &&
-        report.progress &&
-        report.hoursWorked >= 0 &&
-        report.status
-
-    );
-
-});
-
-
-
-            //8.5 REMOVE DUPLICATE ROWS
-            const seenKeys = new Set();
-            const uniqueReports = validReports.filter(report => {
-                const key = [
-
-    report.employeeName
-        .trim()
-        .toLowerCase(),
-
-    report.reportDate,
-
-    report.task
-        .trim()
-        .toLowerCase()
-
-].join("_");
-            if (seenKeys.has(key)) {
-                return false;
-            }
-            
-            seenKeys.add(key);
-            return true;
-        });
-
-console.log("Unique Excel Reports:", uniqueReports.length);
-console.log(
-    "Duplicate Rows In Excel:",
-    validReports.length - uniqueReports.length
-);
-
-            //8.6 Find new reports (skip duplicates)
-            const newReports = uniqueReports.filter(imported => {
-
-                const duplicate = reports.find(existing =>
-
-                    existing.employeeName &&
-                    existing.reportDate &&
-
-                    isDuplicate(existing, imported)
+                    {
+                        raw: false,
+                        defval: ""
+                    }
 
                 );
 
-                return !duplicate;
 
-            });
+            if (importedReports.length === 0) {
 
-            //DEBUG
-            console.log("New Reports:");
-            console.table(newReports);
+                return res.status(400).json({
 
-            //8.7 Generate IDs
-            let nextId = 1;
+                    message: "Excel file is empty"
 
-            if (reports.length > 0) {
-
-                nextId =
-                    Math.max(...reports.map(r => r.id || 0)) + 1;
+                });
 
             }
 
-            newReports.forEach(report => {
 
-                report.id = nextId++;
+            // ==========================================
+            // NORMALIZE EXCEL DATA
+            // ==========================================
 
-            });
+            const normalizedReports =
+                importedReports.map(report => ({
 
-            //8.8 Merge
-            reports.push(...newReports);
+                    employeeName:
+                        report["Employee Name"]
+                            ?.toString()
+                            .trim() || "",
 
-            //8.9 Clean Entire Database
-            reports = cleanReports(reports);
+                    employeeEmail:
+                        report["Employee Email"]
+                            ?.toString()
+                            .trim() || "",
 
-            //8.10 Save
-            fs.writeFileSync(
+                    department:
+                        report["Department"]
+                            ?.toString()
+                            .trim() || "",
 
-                REPORT_FILE,
+                    reportDate:
+                        formatExcelDate(
+                            report["Report Date"]
+                        ),
 
-                JSON.stringify(reports, null, 2)
+                    task:
+                        report["Task"]
+                            ?.toString()
+                            .trim() || "",
 
+                    description:
+                        report["Description"]
+                            ?.toString()
+                            .trim() || "",
+
+                    progress:
+                        report["Progress"]
+                            ?.toString()
+                            .trim() || "",
+
+                    hoursWorked:
+                        Number(
+                            report["Hours Worked"]
+                        ) || 0,
+
+                    status:
+                        report["Status"]
+                            ?.toString()
+                            .trim() || "Pending",
+
+                    managerRemarks:
+                        report["Manager Remarks"]
+                            ?.toString()
+                            .trim() || "",
+
+                    submittedAt:
+                        new Date().toISOString()
+
+                }));
+
+
+            console.log(
+                "Normalized Reports:",
+                normalizedReports
             );
 
-            //8.11 DELETE TEMPORARY EXCEL FILE
-            if (req.file) {
-                fs.unlinkSync(req.file.path);
-                console.log("Temporary Excel File Deleted");
+
+            // ==========================================
+            // REMOVE INVALID / EMPTY ROWS
+            // ==========================================
+
+            const validReports =
+                normalizedReports.filter(report =>
+
+                    report.employeeName &&
+                    report.employeeEmail &&
+                    report.reportDate &&
+                    report.task &&
+                    report.description &&
+                    report.progress &&
+                    report.hoursWorked >= 0 &&
+                    report.status
+
+                );
+
+
+            // ==========================================
+            // REMOVE DUPLICATES INSIDE EXCEL
+            // ==========================================
+
+            const seenKeys = new Set();
+
+            const uniqueReports =
+                validReports.filter(report => {
+
+                    const key = [
+
+                        report.employeeEmail
+                            .trim()
+                            .toLowerCase(),
+
+                        report.reportDate,
+
+                        report.task
+                            .trim()
+                            .toLowerCase()
+
+                    ].join("_");
+
+
+                    if (seenKeys.has(key)) {
+
+                        return false;
+
+                    }
+
+
+                    seenKeys.add(key);
+
+                    return true;
+
+                });
+
+
+            const excelDuplicates =
+                validReports.length -
+                uniqueReports.length;
+
+
+            console.log(
+                "Unique Excel Reports:",
+                uniqueReports.length
+            );
+
+
+            // ==========================================
+            // INSERT INTO POSTGRESQL
+            // ==========================================
+
+            let importedCount = 0;
+
+            let skippedCount = 0;
+
+            let missingEmployees = 0;
+
+            let databaseDuplicates = 0;
+
+
+            for (const report of uniqueReports) {
+
+
+                // ======================================
+                // FIND EMPLOYEE IN POSTGRESQL
+                // ======================================
+
+                const employeeResult =
+                    await pool.query(
+
+                        `
+                        SELECT
+                            id,
+                            name,
+                            email,
+                            department
+                        FROM users
+                        WHERE LOWER(TRIM(email))
+                              = LOWER(TRIM($1))
+                        LIMIT 1
+                        `,
+
+                        [
+                            report.employeeEmail
+                        ]
+
+                    );
+
+
+                // Employee doesn't exist
+
+                if (
+                    employeeResult.rows.length === 0
+                ) {
+
+                    missingEmployees++;
+
+                    continue;
+
+                }
+
+
+                const employee =
+                    employeeResult.rows[0];
+
+
+                // ======================================
+                // CHECK DATABASE DUPLICATE
+                // ======================================
+
+                const duplicateResult =
+                    await pool.query(
+
+                        `
+                        SELECT id
+                        FROM reports
+
+                        WHERE employee_id = $1
+
+                        AND report_date = $2
+
+                        AND LOWER(TRIM(task))
+                            = LOWER(TRIM($3))
+
+                        LIMIT 1
+                        `,
+
+                        [
+
+                            employee.id,
+
+                            report.reportDate,
+
+                            report.task
+
+                        ]
+
+                    );
+
+
+                if (
+                    duplicateResult.rows.length > 0
+                ) {
+
+                    databaseDuplicates++;
+
+                    continue;
+
+                }
+
+
+                // ======================================
+                // INSERT REPORT
+                // ======================================
+
+                await pool.query(
+
+                    `
+                    INSERT INTO reports (
+
+                        employee_id,
+                        mentor_id,
+                        report_date,
+                        task,
+                        department,
+                        description,
+                        progress,
+                        hours_worked,
+                        status,
+                        manager_remarks,
+                        submitted_at
+
+                    )
+
+                    VALUES (
+
+                        $1,
+                        $2,
+                        $3,
+                        $4,
+                        $5,
+                        $6,
+                        $7,
+                        $8,
+                        $9,
+                        $10,
+                        $11
+
+                    )
+                    `,
+
+                    [
+
+                        employee.id,
+
+                        null,
+
+                        report.reportDate,
+
+                        report.task,
+
+                        report.department ||
+                            employee.department ||
+                            "",
+
+                        report.description,
+
+                        report.progress,
+
+                        report.hoursWorked,
+
+                        report.status,
+
+                        report.managerRemarks,
+
+                        report.submittedAt
+
+                    ]
+
+                );
+
+
+                importedCount++;
+
             }
-            
-            //8.12 IMPORT SUMMARY
-            console.log("Existing:", reports.length - newReports.length);
 
-            console.log("Imported:", validReports.length);
 
-            console.log("Added:", newReports.length);
+            // ==========================================
+            // DELETE TEMPORARY EXCEL FILE
+            // ==========================================
 
-            console.log("Duplicates:",
-                validReports.length - newReports.length
-            );
+            if (
+                req.file &&
+                fs.existsSync(req.file.path)
+            ) {
 
-            //8.13 SEND RESPONSE
+                fs.unlinkSync(
+                    req.file.path
+                );
+
+            }
+
+
+            // ==========================================
+            // GET TOTAL REPORT COUNT
+            // ==========================================
+
+            const countResult =
+                await pool.query(
+
+                    `
+                    SELECT COUNT(*) AS total
+                    FROM reports
+                    `
+
+                );
+
+
+            const totalReports =
+                Number(
+                    countResult.rows[0].total
+                );
+
+
+            // ==========================================
+            // RESPONSE
+            // ==========================================
+
             res.json({
 
-    success: true,
+                success: true,
 
-    message: "Import Successful",
+                message:
+                    "Import Successful",
 
-    summary: {
+                summary: {
 
-    totalRows: importedReports.length,
+                    totalRows:
+                        importedReports.length,
 
-    validRows: validReports.length,
+                    validRows:
+                        validReports.length,
 
-    missingEmployees: missingEmployees.length,
+                    missingEmployees:
+                        missingEmployees,
 
-    excelDuplicates:
-        validReports.length - uniqueReports.length,
+                    excelDuplicates:
+                        excelDuplicates,
 
-    databaseDuplicates:
-        uniqueReports.length - newReports.length,
+                    databaseDuplicates:
+                        databaseDuplicates,
 
-    imported: newReports.length,
+                    imported:
+                        importedCount,
 
-    totalReports: reports.length
+                    totalReports:
+                        totalReports
 
-},
+                }
 
-    reports: reports
+            });
 
-});
-        }
 
-        catch (error) {
+        } catch (error) {
 
-            console.error(error);
+            console.error(
+                "IMPORT REPORTS DATABASE ERROR:",
+                error
+            );
+
+
+            // Remove temporary file
+            // if something fails
+
+            if (
+                req.file &&
+                fs.existsSync(req.file.path)
+            ) {
+
+                fs.unlinkSync(
+                    req.file.path
+                );
+
+            }
+
 
             res.status(500).json({
 
-                message: "Import Failed",
+                message:
+                    "Import Failed",
 
-                error: error.message
+                error:
+                    error.message
 
             });
 
@@ -1332,7 +1629,6 @@ console.log(
 
     }
 );
-
 
 //9. GET USERS
 
@@ -2334,112 +2630,6 @@ app.get('/db-test', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'PostgreSQL connection failed'
-        });
-
-    }
-
-});
-
-app.post('/migrate-users', async (req, res) => {
-
-    try {
-
-        const users = getUsers();
-
-        if (!users.length) {
-
-            return res.json({
-                success: false,
-                message: 'No users found in users.json'
-            });
-
-        }
-
-        let imported = 0;
-        let skipped = 0;
-
-        for (const user of users) {
-
-            const existing = await pool.query(
-                'SELECT id FROM users WHERE email = $1',
-                [user.email]
-            );
-
-            if (existing.rows.length > 0) {
-
-                skipped++;
-
-                continue;
-            }
-
-            await pool.query(
-                `
-                INSERT INTO users (
-                    id,
-                    name,
-                    email,
-                    password,
-                    role,
-                    mentor_id,
-                    employment_type,
-                    department,
-                    joining_date,
-                    status,
-                    archive_reason,
-                    archived_on,
-                    archived_by
-                )
-                VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    $4,
-                    $5,
-                    $6,
-                    $7,
-                    $8,
-                    $9,
-                    $10,
-                    $11,
-                    $12,
-                    $13
-                )
-                `,
-                [
-                    user.id,
-                    user.name,
-                    user.email,
-                    user.password,
-                    user.role,
-                    user.mentorId || null,
-                    user.employmentType || null,
-                    user.department || null,
-                    user.joiningDate || null,
-                    user.status || 'Active',
-                    user.archiveReason || null,
-                    user.archivedOn || null,
-                    user.archivedBy || null
-                ]
-            );
-
-            imported++;
-        }
-
-        res.json({
-            success: true,
-            message: 'Users migrated successfully',
-            imported,
-            skipped
-        });
-
-    } catch (error) {
-
-        console.error('Migration error:', error);
-
-        res.status(500).json({
-            success: false,
-            message: 'User migration failed',
-            error: error.message
         });
 
     }
