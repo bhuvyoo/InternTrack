@@ -5,9 +5,14 @@ const pool = require('./db/database');
 const fs = require("fs");
 const XLSX = require("xlsx");
 const multer = require("multer");
+const crypto = require("crypto");
+const bcrypt = require("bcrypt");
+
 
 //CONSTANTS
 const app = express();
+app.use(cors());
+app.use(express.json());
 const path = require("path");
 
 
@@ -21,9 +26,6 @@ const upload = multer({
     dest: "uploads/"
 });
 
-app.use(cors());
-
-app.use(express.json());
 
 //HELPER FUNCTIONS
 
@@ -105,93 +107,601 @@ app.get("/", (req, res) => {
     res.send("InternTrack Backend Running");
 });
 
-// 2. LOGIN - PostgreSQL
+// ==========================================
+// LOGIN
+// ==========================================
+
 app.post("/login", async (req, res) => {
 
     try {
 
         const { email, password } = req.body;
 
-        // Check that email and password were provided
+
         if (!email || !password) {
 
             return res.status(400).json({
-                message: "Email and password are required"
+
+                message: "Email and password are required."
+
             });
 
         }
 
-        // Find user in PostgreSQL
+
+        // ==========================================
+        // FIND USER
+        // ==========================================
+
         const result = await pool.query(
+
             `
-            SELECT
-                id,
-                name,
-                email,
-                password,
-                department,
-                employment_type,
-                mentor_id,
-                status,
-                role
+            SELECT *
             FROM users
-            WHERE LOWER(email) = LOWER($1)
-            AND password = $2
+            WHERE LOWER(TRIM(email))
+                  = LOWER(TRIM($1))
             LIMIT 1
             `,
-            [email, password]
+
+            [email]
+
         );
 
-        // User not found / invalid password
+
         if (result.rows.length === 0) {
 
             return res.status(401).json({
-                message: "Invalid Username or Password"
+
+                message: "Invalid email or password."
+
             });
 
         }
 
+
         const user = result.rows[0];
 
-        const token = jwt.sign(
-    {
-        id: user.id,
-        email: user.email,
-        role: user.role
-    },
-    JWT_SECRET,
-    {
-        expiresIn: "1h"
-    }
-);
-console.log("JWT GENERATED:", token);
 
-        // Login successful
+        // ==========================================
+        // CHECK PASSWORD
+        // ==========================================
+
+        let passwordValid = false;
+
+
+        /*
+         * Check whether the stored password
+         * is already a bcrypt hash.
+         */
+
+        const isBcryptHash =
+            typeof user.password === "string" &&
+            user.password.startsWith("$2");
+
+
+        if (isBcryptHash) {
+
+            // --------------------------------------
+            // BCRYPT PASSWORD
+            // --------------------------------------
+
+            passwordValid =
+                await bcrypt.compare(
+                    password,
+                    user.password
+                );
+
+        }
+
+        else {
+
+            // --------------------------------------
+            // LEGACY PLAINTEXT PASSWORD
+            // --------------------------------------
+
+            passwordValid =
+                password === user.password;
+
+        }
+
+
+        if (!passwordValid) {
+
+            return res.status(401).json({
+
+                message: "Invalid email or password."
+
+            });
+
+        }
+
+
+        // ==========================================
+        // UPGRADE OLD PASSWORD
+        // ==========================================
+
+        /*
+         * If the user was still using the old
+         * plaintext password, automatically convert
+         * it to bcrypt after successful login.
+         */
+
+        if (!isBcryptHash) {
+
+            const passwordHash =
+                await bcrypt.hash(
+                    password,
+                    10
+                );
+
+
+            await pool.query(
+
+                `
+                UPDATE users
+
+                SET password = $1
+
+                WHERE id = $2
+                `,
+
+                [
+                    passwordHash,
+                    user.id
+                ]
+
+            );
+
+        }
+
+
+        // ==========================================
+        // GENERATE JWT
+        // ==========================================
+
+        const token = jwt.sign(
+
+            {
+                id: user.id,
+                email: user.email,
+                role: user.role
+
+            },
+
+            JWT_SECRET,
+
+            {
+                expiresIn: "1h"
+            }
+
+        );
+
+
+        // ==========================================
+        // RESPONSE
+        // ==========================================
+
         res.json({
 
-            message: "Login Successful",
-
-            token: token,
+            token,
 
             user: {
+
                 id: user.id,
+
                 name: user.name,
+
                 email: user.email,
-                department: user.department || "",
-                employmentType: user.employment_type || "",
-                mentorId: user.mentor_id || null,
-                status: user.status || "Active",
-                role: user.role
+
+                role: user.role,
+
+                department: user.department,
+
+                mentorId: user.mentorId,
+
+                employmentType:
+                    user.employmentType,
+
+                joiningDate:
+                    user.joiningDate,
+
+                status:
+                    user.status
+
             }
 
         });
 
-    } catch (error) {
 
-        console.error("LOGIN DATABASE ERROR:", error);
+    }
+
+    catch (error) {
+
+        console.error(
+            "LOGIN ERROR:",
+            error
+        );
 
         res.status(500).json({
-            message: "Database error during login"
+
+            message:
+                "Unable to login."
+
+        });
+
+    }
+
+});
+
+
+// ==========================================
+// FORGOT PASSWORD
+// ==========================================
+
+app.post("/forgot-password", async (req, res) => {
+
+    try {
+
+        const { email } = req.body;
+
+        if (!email) {
+
+            return res.status(400).json({
+                message: "Email is required"
+            });
+
+        }
+
+        // ==========================================
+        // FIND USER
+        // ==========================================
+
+        const userResult = await pool.query(
+
+            `
+            SELECT id, email
+            FROM users
+            WHERE LOWER(TRIM(email))
+                  = LOWER(TRIM($1))
+            LIMIT 1
+            `,
+
+            [email]
+
+        );
+
+
+        /*
+         * Always return the same response whether
+         * the email exists or not.
+         *
+         * This prevents revealing which emails
+         * have accounts.
+         */
+
+        if (userResult.rows.length === 0) {
+
+            return res.json({
+
+                message:
+                    "If an account exists for this email, a password reset link has been generated."
+
+            });
+
+        }
+
+
+        const user = userResult.rows[0];
+
+
+        // ==========================================
+        // GENERATE SECURE RESET TOKEN
+        // ==========================================
+
+        const resetToken =
+            crypto.randomBytes(32).toString("hex");
+
+
+        // Store only the hash in PostgreSQL
+
+        const tokenHash =
+            crypto
+                .createHash("sha256")
+                .update(resetToken)
+                .digest("hex");
+
+
+        // Token valid for 15 minutes
+
+        const expiresAt =
+            new Date(Date.now() + 15 * 60 * 1000);
+
+
+        // ==========================================
+        // INVALIDATE OLD TOKENS
+        // ==========================================
+
+        await pool.query(
+
+            `
+            UPDATE password_reset_tokens
+
+            SET used = TRUE
+
+            WHERE user_id = $1
+            AND used = FALSE
+            `,
+
+            [user.id]
+
+        );
+
+
+        // ==========================================
+        // SAVE NEW TOKEN
+        // ==========================================
+
+        await pool.query(
+
+            `
+            INSERT INTO password_reset_tokens
+            (
+                user_id,
+                token_hash,
+                expires_at,
+                used
+            )
+
+            VALUES
+            (
+                $1,
+                $2,
+                $3,
+                FALSE
+            )
+            `,
+
+            [
+                user.id,
+                tokenHash,
+                expiresAt
+            ]
+
+        );
+
+
+        // ==========================================
+        // DEVELOPMENT RESET LINK
+        // ==========================================
+
+        const resetLink =
+            `http://localhost:4200/reset-password?token=${resetToken}`;
+
+
+        console.log(
+            "PASSWORD RESET LINK:",
+            resetLink
+        );
+
+
+        // ==========================================
+        // RESPONSE
+        // ==========================================
+
+        res.json({
+
+            message:
+                "If an account exists for this email, a password reset link has been generated.",
+
+            /*
+             * Development only.
+             *
+             * Later this link will be sent
+             * through email instead.
+             */
+
+            resetLink:
+                resetLink
+
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "FORGOT PASSWORD ERROR:",
+            error
+        );
+
+        res.status(500).json({
+
+            message:
+                "Unable to process password reset request."
+
+        });
+
+    }
+
+});
+
+
+// ==========================================
+// RESET PASSWORD
+// ==========================================
+
+app.post("/reset-password", async (req, res) => {
+
+    try {
+
+        const {
+            token,
+            password
+        } = req.body;
+
+
+        // ==========================================
+        // VALIDATION
+        // ==========================================
+
+        if (!token || !password) {
+
+            return res.status(400).json({
+
+                message:
+                    "Reset token and new password are required."
+
+            });
+
+        }
+
+
+        if (password.length < 6) {
+
+            return res.status(400).json({
+
+                message:
+                    "Password must contain at least 6 characters."
+
+            });
+
+        }
+
+
+        // ==========================================
+        // HASH TOKEN
+        // ==========================================
+
+        const tokenHash =
+            crypto
+                .createHash("sha256")
+                .update(token)
+                .digest("hex");
+
+
+        // ==========================================
+        // FIND VALID TOKEN
+        // ==========================================
+
+        const tokenResult = await pool.query(
+
+            `
+            SELECT
+                id,
+                user_id,
+                expires_at,
+                used
+
+            FROM password_reset_tokens
+
+            WHERE token_hash = $1
+
+            AND used = FALSE
+
+            AND expires_at > CURRENT_TIMESTAMP
+
+            LIMIT 1
+            `,
+
+            [tokenHash]
+
+        );
+
+
+        if (tokenResult.rows.length === 0) {
+
+            return res.status(400).json({
+
+                message:
+                    "Invalid or expired password reset link."
+
+            });
+
+        }
+
+
+        const resetRecord =
+            tokenResult.rows[0];
+
+
+        // ==========================================
+        // HASH NEW PASSWORD
+        // ==========================================
+
+        const bcrypt =
+            require("bcrypt");
+
+        const passwordHash =
+            await bcrypt.hash(
+                password,
+                10
+            );
+
+
+        // ==========================================
+        // UPDATE PASSWORD
+        // ==========================================
+
+        await pool.query(
+
+            `
+            UPDATE users
+
+            SET password = $1
+
+            WHERE id = $2
+            `,
+
+            [
+                passwordHash,
+                resetRecord.user_id
+            ]
+
+        );
+
+
+        // ==========================================
+        // INVALIDATE TOKEN
+        // ==========================================
+
+        await pool.query(
+
+            `
+            UPDATE password_reset_tokens
+
+            SET used = TRUE
+
+            WHERE id = $1
+            `,
+
+            [resetRecord.id]
+
+        );
+
+
+        // ==========================================
+        // RESPONSE
+        // ==========================================
+
+        res.json({
+
+            message:
+                "Password reset successfully."
+
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "RESET PASSWORD ERROR:",
+            error
+        );
+
+        res.status(500).json({
+
+            message:
+                "Unable to reset password."
+
         });
 
     }
@@ -1974,6 +2484,18 @@ app.post(
 
                 }
 
+                // --------------------------------------
+// HASH DEFAULT PASSWORD
+// --------------------------------------
+
+const defaultPassword = "123456";
+
+const hashedPassword =
+    await bcrypt.hash(
+        defaultPassword,
+        10
+    );
+
 
                 // --------------------------------------
                 // INSERT INTO POSTGRESQL
@@ -2008,28 +2530,26 @@ app.post(
                     `,
 
                     [
+    name,
 
-                        name,
+    email,
 
-                        email,
+    hashedPassword,
 
-                        "123456",
+    role,
 
-                        role,
+    user["Employment Type"] ||
+    user.employmentType ||
+    null,
 
-                        user["Employment Type"] ||
-                        user.employmentType ||
-                        null,
+    user.Department ||
+    user.department ||
+    null,
 
-                        user.Department ||
-                        user.department ||
-                        null,
-
-                        user["Joining Date"] ||
-                        user.joiningDate ||
-                        null
-
-                    ]
+    user["Joining Date"] ||
+    user.joiningDate ||
+    null
+]
 
                 );
 
@@ -2112,6 +2632,249 @@ app.post(
 
 );
 
+
+//12. ADD USER - PostgreSQL
+
+app.post(
+    "/users",
+    authenticateToken,
+    authorizeRoles("admin"),
+    async (req, res) => {
+
+        try {
+
+            const {
+                name,
+                email,
+                password,
+                role,
+                employmentType,
+                department,
+                joiningDate,
+                status,
+                mentorId
+            } = req.body;
+
+
+            // ==========================================
+            // VALIDATION
+            // ==========================================
+
+            if (
+                !name ||
+                !email ||
+                !password ||
+                !role
+            ) {
+
+                return res.status(400).json({
+
+                    message:
+                        "Name, email, password and role are required."
+
+                });
+
+            }
+
+
+            // ==========================================
+            // CHECK DUPLICATE EMAIL
+            // ==========================================
+
+            const existingUser =
+                await pool.query(
+
+                    `
+                    SELECT id
+                    FROM users
+                    WHERE LOWER(TRIM(email))
+                          = LOWER(TRIM($1))
+                    LIMIT 1
+                    `,
+
+                    [email]
+
+                );
+
+
+            if (existingUser.rows.length > 0) {
+
+                return res.status(400).json({
+
+                    message:
+                        "Email already exists."
+
+                });
+
+            }
+
+
+            // ==========================================
+            // HASH PASSWORD
+            // ==========================================
+
+            const passwordHash =
+                await bcrypt.hash(
+                    password,
+                    10
+                );
+
+
+            // ==========================================
+            // INSERT USER
+            // ==========================================
+
+            const result =
+                await pool.query(
+
+                    `
+                    INSERT INTO users
+                    (
+                        name,
+                        email,
+                        password,
+                        role,
+                        employment_type,
+                        department,
+                        joining_date,
+                        status,
+                        mentor_id
+                    )
+
+                    VALUES
+                    (
+                        $1,
+                        $2,
+                        $3,
+                        $4,
+                        $5,
+                        $6,
+                        $7,
+                        $8,
+                        $9
+                    )
+
+                    RETURNING
+                        id,
+                        name,
+                        email,
+                        role,
+                        employment_type,
+                        department,
+                        joining_date,
+                        status,
+                        mentor_id
+                    `,
+
+                    [
+
+                        name
+                            .toString()
+                            .trim(),
+
+                        email
+                            .toString()
+                            .trim(),
+
+                        passwordHash,
+
+                        role
+                            .toString()
+                            .trim()
+                            .toLowerCase(),
+
+                        employmentType || null,
+
+                        department || null,
+
+                        joiningDate || null,
+
+                        status || "Active",
+
+                        mentorId || null
+
+                    ]
+
+                );
+
+
+            const user =
+                result.rows[0];
+
+
+            // ==========================================
+            // CONVERT TO ANGULAR FORMAT
+            // ==========================================
+
+            const formattedUser = {
+
+                id:
+                    user.id,
+
+                name:
+                    user.name,
+
+                email:
+                    user.email,
+
+                role:
+                    user.role,
+
+                employmentType:
+                    user.employment_type || "",
+
+                department:
+                    user.department || "",
+
+                joiningDate:
+                    user.joining_date || "",
+
+                status:
+                    user.status || "Active",
+
+                mentorId:
+                    user.mentor_id || null
+
+            };
+
+
+            // ==========================================
+            // RESPONSE
+            // ==========================================
+
+            res.status(201).json({
+
+                message:
+                    "Employee Added Successfully",
+
+                user:
+                    formattedUser
+
+            });
+
+
+        } catch (error) {
+
+            console.error(
+                "ADD USER DATABASE ERROR:",
+                error
+            );
+
+
+            res.status(500).json({
+
+                message:
+                    "Unable to add employee.",
+
+                error:
+                    error.message
+
+            });
+
+        }
+
+    }
+);
 
 
 //13. UPDATE USER - PostgreSQL
