@@ -1,4 +1,5 @@
 //IMPORTS
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const pool = require('./db/database');
@@ -7,6 +8,7 @@ const XLSX = require("xlsx");
 const multer = require("multer");
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
+
 
 
 //CONSTANTS
@@ -18,7 +20,7 @@ const path = require("path");
 
 //JWT
 const jwt = require("jsonwebtoken");
-const JWT_SECRET = "interntrack-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET;
 
 
 //MIDDLEWARE
@@ -54,13 +56,14 @@ function authenticateToken(req, res, next) {
         });
     }
 
-    const token = authHeader.split(" ")[1];
-
-    if (!token) {
+    
+    if (!authHeader.startsWith("Bearer ")) {
         return res.status(401).json({
             message: "Invalid authorization format"
         });
     }
+
+    const token = authHeader.split(" ")[1];
 
     try {
 
@@ -2140,10 +2143,414 @@ app.post(
     }
 );
 
-//9. GET USERS
+
+// ==========================================
+// GET CURRENT LOGGED-IN USER
+// ==========================================
+
+app.get(
+    "/users/me",
+    authenticateToken,
+    async (req, res) => {
+
+        try {
+
+            const userId = req.user.id;
+
+            const result = await pool.query(
+                `
+                SELECT
+                    id,
+                    name,
+                    email,
+                    role,
+                    employment_type,
+                    department,
+                    joining_date,
+                    status,
+                    mentor_id
+                FROM users
+                WHERE id = $1
+                LIMIT 1
+                `,
+                [userId]
+            );
+
+            if (result.rows.length === 0) {
+
+                return res.status(404).json({
+                    message: "User not found"
+                });
+
+            }
+
+            const user = result.rows[0];
+
+            res.json({
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                employmentType: user.employment_type || "",
+                department: user.department || "",
+                joiningDate: user.joining_date || "",
+                status: user.status || "",
+                mentorId: user.mentor_id || null
+            });
+
+        } catch (error) {
+
+            console.error("GET CURRENT USER ERROR:", error);
+
+            res.status(500).json({
+                message: "Unable to fetch user profile"
+            });
+
+        }
+
+    }
+);
+
+
+// ==========================================
+// GET CURRENT LOGGED-IN USER
+// ==========================================
+
+app.get("/current-user", authenticateToken, async (req, res) => {
+
+    try {
+
+        const result = await pool.query(
+            `
+            SELECT
+                id,
+                name,
+                email,
+                role,
+                employment_type,
+                department,
+                joining_date,
+                status,
+                mentor_id,
+                phone
+            FROM users
+            WHERE id = $1
+            LIMIT 1
+            `,
+            [req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+
+            return res.status(404).json({
+                message: "User not found"
+            });
+
+        }
+
+        const user = result.rows[0];
+
+        res.json({
+
+            id: user.id,
+
+            name: user.name,
+
+            email: user.email,
+
+            role: user.role,
+
+            employmentType:
+                user.employment_type || "",
+
+            department:
+                user.department || "",
+
+            joiningDate:
+                user.joining_date || "",
+
+            status:
+                user.status || "Active",
+
+            mentorId:
+                user.mentor_id || null,
+
+            phone:
+                user.phone || ""
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "GET CURRENT USER ERROR:",
+            error
+        );
+
+        res.status(500).json({
+            message: "Unable to fetch user profile"
+        });
+
+    }
+
+});
+
+
+// ==========================================
+// GET ASSIGNED MENTOR
+// ==========================================
+
+app.get("/my-mentor", authenticateToken, async (req, res) => {
+
+    try {
+
+        // Get mentor ID of logged-in user
+        const userResult = await pool.query(
+            `
+            SELECT mentor_id
+            FROM users
+            WHERE id = $1
+            LIMIT 1
+            `,
+            [req.user.id]
+        );
+
+        if (userResult.rows.length === 0) {
+
+            return res.status(404).json({
+                message: "User not found"
+            });
+
+        }
+
+        const mentorId =
+            userResult.rows[0].mentor_id;
+
+
+        // No mentor assigned
+        if (!mentorId) {
+
+            return res.json({
+                assigned: false,
+                mentor: null
+            });
+
+        }
+
+
+        // Get ONLY assigned mentor details
+        const mentorResult = await pool.query(
+            `
+            SELECT
+                id,
+                name,
+                email,
+                department,
+                role
+            FROM users
+            WHERE id = $1
+            AND role = 'mentor'
+            LIMIT 1
+            `,
+            [mentorId]
+        );
+
+
+        if (mentorResult.rows.length === 0) {
+
+            return res.json({
+                assigned: false,
+                mentor: null
+            });
+
+        }
+
+
+        const mentor =
+            mentorResult.rows[0];
+
+
+        res.json({
+
+            assigned: true,
+
+            mentor: {
+
+                id: mentor.id,
+
+                name: mentor.name,
+
+                email: mentor.email,
+
+                department:
+                    mentor.department || "",
+
+                role:
+                    mentor.role
+
+            }
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "GET MY MENTOR ERROR:",
+            error
+        );
+
+        res.status(500).json({
+            message: "Unable to fetch mentor information"
+        });
+
+    }
+
+});
+
+
+// ==========================================
+// UPDATE CURRENT USER PROFILE
+// ==========================================
+
+app.put("/current-user", authenticateToken, async (req, res) => {
+
+    try {
+
+        const {
+
+            name,
+            phone
+
+        } = req.body;
+
+
+        // Validate name
+        if (!name || !name.trim()) {
+
+            return res.status(400).json({
+
+                message:
+                    "Name is required"
+
+            });
+
+        }
+
+
+        const result = await pool.query(
+
+            `
+            UPDATE users
+
+            SET
+
+                name = $1,
+
+                phone = $2
+
+            WHERE id = $3
+
+            RETURNING
+
+                id,
+                name,
+                email,
+                role,
+                employment_type,
+                department,
+                joining_date,
+                status,
+                mentor_id,
+                phone
+            `,
+
+            [
+
+                name.trim(),
+
+                phone ? phone.trim() : "",
+
+                req.user.id
+
+            ]
+
+        );
+
+
+        if (result.rows.length === 0) {
+
+            return res.status(404).json({
+
+                message:
+                    "User not found"
+
+            });
+
+        }
+
+
+        const user =
+            result.rows[0];
+
+
+        res.json({
+
+            message:
+                "Profile updated successfully",
+
+            user: {
+
+                id: user.id,
+
+                name: user.name,
+
+                email: user.email,
+
+                role: user.role,
+
+                employmentType:
+                    user.employment_type || "",
+
+                department:
+                    user.department || "",
+
+                joiningDate:
+                    user.joining_date || "",
+
+                status:
+                    user.status || "Active",
+
+                mentorId:
+                    user.mentor_id || null,
+
+                phone:
+                    user.phone || ""
+
+            }
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "UPDATE CURRENT USER ERROR:",
+            error
+        );
+
+        res.status(500).json({
+
+            message:
+                "Unable to update profile"
+
+        });
+
+    }
+
+});
+
 
 // 9. GET USERS - PostgreSQL
-app.get("/users", async (req, res) => {
+app.get("/users", authenticateToken, authorizeRoles("admin"), async (req, res) => {
 
     try {
 
@@ -2635,11 +3042,7 @@ const hashedPassword =
 
 //12. ADD USER - PostgreSQL
 
-app.post(
-    "/users",
-    authenticateToken,
-    authorizeRoles("admin"),
-    async (req, res) => {
+app.post( "/users", authenticateToken, authorizeRoles("admin"), async (req, res) => {
 
         try {
 
@@ -2879,7 +3282,7 @@ app.post(
 
 //13. UPDATE USER - PostgreSQL
 
-app.put("/users/:id", async (req, res) => {
+app.put("/users/:id", authenticateToken, authorizeRoles("admin"), async (req, res) => {
 
     try {
 
@@ -3080,7 +3483,7 @@ app.put("/users/:id", async (req, res) => {
 
 //14. ARCHIVE USER - PostgreSQL
 
-app.put("/users/archive/:id", async (req, res) => {
+app.put("/users/archive/:id", authenticateToken, authorizeRoles("admin"), async (req, res) => {
 
     try {
 
@@ -3234,7 +3637,7 @@ app.put("/users/archive/:id", async (req, res) => {
 
 //15. RESTORE USER - PostgreSQL
 
-app.put("/users/restore/:id", async (req, res) => {
+app.put("/users/restore/:id", authenticateToken, authorizeRoles("admin"), async (req, res) => {
 
     try {
 
