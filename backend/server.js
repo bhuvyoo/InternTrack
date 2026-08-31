@@ -104,6 +104,68 @@ function authorizeRoles(...allowedRoles) {
 
 }
 
+// ==========================================
+// VALIDATION HELPERS
+// ==========================================
+
+function isValidEmail(email) {
+
+    const emailRegex =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    return emailRegex.test(
+        String(email).trim()
+    );
+
+}
+
+
+function isValidRole(role) {
+
+    const allowedRoles = [
+        "admin",
+        "mentor",
+        "employee"
+    ];
+
+    return allowedRoles.includes(
+        String(role).toLowerCase().trim()
+    );
+
+}
+
+
+function isValidStatus(status) {
+
+    const allowedStatuses = [
+        "Active",
+        "Inactive",
+        "Archived"
+    ];
+
+    return allowedStatuses.includes(
+        String(status).trim()
+    );
+
+}
+
+
+function isValidPhone(phone) {
+
+    // Empty phone is allowed
+    if (!phone) {
+        return true;
+    }
+
+    const phoneRegex =
+        /^[0-9+\-\s()]{7,20}$/;
+
+    return phoneRegex.test(
+        String(phone).trim()
+    );
+
+}
+
 //ROUTES
 //1. HOMEROUTE
 app.get("/", (req, res) => {
@@ -720,8 +782,114 @@ app.post("/reports", authenticateToken, async (req, res) => {
 
         const report = req.body;
 
-        console.log("POST REPORT - PostgreSQL");
-        console.log("Incoming Report:", report);
+// =========================================
+// REPORT VALIDATION
+// =========================================
+
+// Required employee email
+if (
+    !report.employeeEmail ||
+    !report.employeeEmail.toString().trim()
+) {
+
+    return res.status(400).json({
+        message: "Employee email is required."
+    });
+
+}
+
+
+// Validate employee email
+if (!isValidEmail(report.employeeEmail)) {
+
+    return res.status(400).json({
+        message: "Please provide a valid employee email."
+    });
+
+}
+
+
+// Required report date
+if (!report.reportDate) {
+
+    return res.status(400).json({
+        message: "Report date is required."
+    });
+
+}
+
+
+// Validate report date
+const reportDate = new Date(report.reportDate);
+
+if (isNaN(reportDate.getTime())) {
+
+    return res.status(400).json({
+        message: "Please provide a valid report date."
+    });
+
+}
+
+
+// Required task
+if (
+    !report.task ||
+    !report.task.toString().trim()
+) {
+
+    return res.status(400).json({
+        message: "Task is required."
+    });
+
+}
+
+
+// Required description
+if (
+    !report.description ||
+    !report.description.toString().trim()
+) {
+
+    return res.status(400).json({
+        message: "Report description is required."
+    });
+
+}
+
+
+// Hours validation
+const hoursWorked = Number(report.hoursWorked);
+
+if (
+    !Number.isFinite(hoursWorked) ||
+    hoursWorked <= 0 ||
+    hoursWorked > 24
+) {
+
+    return res.status(400).json({
+        message:
+            "Hours worked must be greater than 0 and cannot exceed 24 hours."
+    });
+
+}
+
+
+// Progress validation
+if (
+    report.progress &&
+    report.progress.toString().trim().length > 100
+) {
+
+    return res.status(400).json({
+        message:
+            "Progress must not exceed 100 characters."
+    });
+
+}
+
+
+console.log("POST REPORT - PostgreSQL");
+console.log("Incoming Report:", report);
 
 
         // =========================================
@@ -2415,63 +2583,47 @@ app.get("/my-mentor", authenticateToken, async (req, res) => {
 app.put("/current-user", authenticateToken, async (req, res) => {
 
     try {
+        const {name, phone} = req.body;
 
-        const {
+// ==========================================
+// VALIDATION
+// ==========================================
 
-            name,
-            phone
+// Name required
+if (!name || !name.toString().trim()) {
 
-        } = req.body;
+    return res.status(400).json({
+        message: "Name is required."
+    });
 
+}
 
-        // Validate name
-        if (!name || !name.trim()) {
+// Name length validation
+if (name.toString().trim().length < 2) {
 
-            return res.status(400).json({
+    return res.status(400).json({
+        message: "Name must contain at least 2 characters."
+    });
 
-                message:
-                    "Name is required"
+}
 
-            });
+// Phone validation
+if (!isValidPhone(phone)) {
 
-        }
+    return res.status(400).json({
+        message: "Please enter a valid phone number."
+    });
 
+}
 
-        const result = await pool.query(
-
-            `
-            UPDATE users
-
-            SET
-
-                name = $1,
-
-                phone = $2
-
-            WHERE id = $3
-
-            RETURNING
-
-                id,
-                name,
-                email,
-                role,
-                employment_type,
-                department,
-                joining_date,
-                status,
-                mentor_id,
-                phone
-            `,
-
+        const result = await pool.query(`UPDATE users SET name = $1, phone = $2 WHERE id = $3 RETURNING 
+            id, name, email, role, employment_type, department, joining_date, status, mentor_id, phone`,
             [
-
                 name.trim(),
 
                 phone ? phone.trim() : "",
 
                 req.user.id
-
             ]
 
         );
@@ -3058,26 +3210,76 @@ app.post( "/users", authenticateToken, authorizeRoles("admin"), async (req, res)
                 mentorId
             } = req.body;
 
-
             // ==========================================
-            // VALIDATION
-            // ==========================================
+// VALIDATION
+// ==========================================
 
-            if (
-                !name ||
-                !email ||
-                !password ||
-                !role
-            ) {
+// Required fields
+if (
+    !name ||
+    !name.toString().trim() ||
+    !email ||
+    !email.toString().trim() ||
+    !password ||
+    !role ||
+    !role.toString().trim()
+) {
 
-                return res.status(400).json({
+    return res.status(400).json({
+        message: "Name, email, password and role are required."
+    });
 
-                    message:
-                        "Name, email, password and role are required."
+}
 
-                });
 
-            }
+// Name validation
+if (name.toString().trim().length < 2) {
+
+    return res.status(400).json({
+        message: "Name must contain at least 2 characters."
+    });
+
+}
+
+
+// Email validation
+if (!isValidEmail(email)) {
+
+    return res.status(400).json({
+        message: "Please enter a valid email address."
+    });
+
+}
+
+
+// Password validation
+if (password.toString().length < 6) {
+
+    return res.status(400).json({
+        message: "Password must contain at least 6 characters."
+    });
+
+}
+
+
+// Role validation
+if (!isValidRole(role)) {
+
+    return res.status(400).json({
+        message: "Role must be admin, mentor or employee."
+    });
+
+}
+
+
+// Status validation
+if (status && !isValidStatus(status)) {
+
+    return res.status(400).json({
+        message: "Invalid user status."
+    });
+
+}
 
 
             // ==========================================
