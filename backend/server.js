@@ -7,6 +7,10 @@ const fs = require("fs");
 const XLSX = require("xlsx");
 const multer = require("multer");
 const crypto = require("crypto");
+const {
+    encryptData,
+    decryptData
+} = require("./security/encryption");
 const bcrypt = require("bcrypt");
 
 
@@ -16,6 +20,95 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 const path = require("path");
+
+// =========================================================
+// AES-256-GCM REQUEST DECRYPTION MIDDLEWARE
+// =========================================================
+
+function decryptRequest(req, res, next) {
+
+    try {
+
+        console.log("\n========================================");
+        console.log("ENCRYPTION MIDDLEWARE TRIGGERED");
+        console.log("REQUEST BODY RECEIVED:");
+        console.log(req.body);
+        console.log("========================================");
+
+
+        // Check whether request contains encrypted payload
+        if (
+            req.body &&
+            req.body.encryptedData &&
+            req.body.iv &&
+            req.body.authTag
+        ) {
+
+            console.log(
+                "Encrypted payload detected"
+            );
+
+
+            // Decrypt incoming payload
+            const decryptedData =
+                decryptData(req.body);
+
+
+            console.log(
+                "DECRYPTED DATA:"
+            );
+
+            console.log(
+                decryptedData
+            );
+
+
+            // Replace encrypted request body
+            // with original decrypted data
+
+            req.body =
+                decryptedData;
+
+
+            console.log(
+                "Request body successfully decrypted"
+            );
+
+        } else {
+
+            console.log(
+                "Request is not encrypted"
+            );
+
+        }
+
+
+        // Continue to actual API route
+
+        next();
+
+
+    } catch (error) {
+
+        console.error(
+            "\nREQUEST DECRYPTION ERROR:"
+        );
+
+        console.error(
+            error
+        );
+
+
+        return res.status(400).json({
+
+            message:
+                "Invalid or corrupted encrypted request"
+
+        });
+
+    }
+
+}
 
 
 //JWT
@@ -776,7 +869,7 @@ app.post("/reset-password", async (req, res) => {
 
 //3. CREATE REPORT - PostgreSQL
 
-app.post("/reports", authenticateToken, async (req, res) => {
+app.post("/reports", authenticateToken, decryptRequest, async (req, res) => {
 
     try {
 
@@ -892,41 +985,57 @@ console.log("POST REPORT - PostgreSQL");
 console.log("Incoming Report:", report);
 
 
-        // =========================================
-        // FIND EMPLOYEE
-        // =========================================
+// =========================================
+// FIND AUTHENTICATED EMPLOYEE FROM JWT
+// =========================================
 
-        const employeeResult = await pool.query(
+const employeeResult = await pool.query(
 
-            `
-            SELECT
-                id,
-                name,
-                email,
-                department
-            FROM users
-            WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))
-            LIMIT 1
-            `,
+    `
+    SELECT
+        id,
+        name,
+        email,
+        department,
+        mentor_id,
+        role
+    FROM users
+    WHERE id = $1
+    LIMIT 1
+    `,
 
-            [report.employeeEmail]
+    [req.user.id]
 
-        );
-
-
-        if (employeeResult.rows.length === 0) {
-
-            return res.status(400).json({
-
-                message:
-                    "Employee does not exist. Please add the employee first."
-
-            });
-
-        }
+);
 
 
-        const employee = employeeResult.rows[0];
+if (employeeResult.rows.length === 0) {
+
+    return res.status(401).json({
+
+        message: "Authenticated user not found."
+
+    });
+
+}
+
+
+const employee = employeeResult.rows[0];
+
+
+// =========================================
+// REPORT OWNERSHIP SECURITY
+// =========================================
+
+if (employee.role !== "employee") {
+
+    return res.status(403).json({
+
+        message: "Only employees can submit reports."
+
+    });
+
+}
 
 
         // =========================================
@@ -1013,7 +1122,7 @@ console.log("Incoming Report:", report);
 
                 employee.id,
 
-                report.mentorId || null,
+                employee.mentor_id || null,
 
                 report.reportDate,
 
@@ -1166,7 +1275,7 @@ app.put("/reports/:id", authenticateToken, async (req, res) => {
         const existingResult = await pool.query(
 
             `
-            SELECT id
+            SELECT *
             FROM reports
             WHERE id = $1
             `,
@@ -1187,6 +1296,82 @@ app.put("/reports/:id", authenticateToken, async (req, res) => {
         }
 
 
+        const existingReport =
+            existingResult.rows[0];
+
+
+        // =========================================
+        // REPORT OWNERSHIP / AUTHORIZATION
+        // =========================================
+
+        if (
+
+            req.user.role === "employee" &&
+
+            Number(existingReport.employee_id)
+            !== Number(req.user.id)
+
+        ) {
+
+            return res.status(403).json({
+
+                message:
+                    "You are not allowed to update another employee's report."
+
+            });
+
+        }
+
+
+        if (
+
+            req.user.role === "mentor" &&
+
+            Number(existingReport.mentor_id)
+            !== Number(req.user.id)
+
+        ) {
+
+            return res.status(403).json({
+
+                message:
+                    "You are not allowed to update a report not assigned to you."
+
+            });
+
+        }
+
+
+        // =========================================
+        // EMPLOYEE UPDATE RULES
+        // Employees cannot change approval fields
+        // =========================================
+
+        let status =
+            existingReport.status;
+
+        let managerRemarks =
+            existingReport.manager_remarks;
+
+
+        if (
+
+            req.user.role === "mentor" ||
+
+            req.user.role === "admin"
+
+        ) {
+
+            status =
+                updatedReport.status ||
+                existingReport.status;
+
+            managerRemarks =
+                updatedReport.managerRemarks || "";
+
+        }
+
+
         // =========================================
         // UPDATE REPORT
         // =========================================
@@ -1198,18 +1383,16 @@ app.put("/reports/:id", authenticateToken, async (req, res) => {
 
             SET
 
-                employee_id = $1,
-                mentor_id = $2,
-                report_date = $3,
-                task = $4,
-                department = $5,
-                description = $6,
-                progress = $7,
-                hours_worked = $8,
-                status = $9,
-                manager_remarks = $10
+                report_date = $1,
+                task = $2,
+                department = $3,
+                description = $4,
+                progress = $5,
+                hours_worked = $6,
+                status = $7,
+                manager_remarks = $8
 
-            WHERE id = $11
+            WHERE id = $9
 
             RETURNING *
 
@@ -1217,25 +1400,28 @@ app.put("/reports/:id", authenticateToken, async (req, res) => {
 
             [
 
-                updatedReport.employeeId || null,
+                updatedReport.reportDate ||
+                    existingReport.report_date,
 
-                updatedReport.mentorId || null,
+                updatedReport.task ??
+                    existingReport.task,
 
-                updatedReport.reportDate,
+                updatedReport.department ??
+                    existingReport.department,
 
-                updatedReport.task || "",
+                updatedReport.description ??
+                    existingReport.description,
 
-                updatedReport.department || "",
+                updatedReport.progress ??
+                    existingReport.progress,
 
-                updatedReport.description || "",
+                updatedReport.hoursWorked !== undefined
+                    ? Number(updatedReport.hoursWorked)
+                    : Number(existingReport.hours_worked),
 
-                updatedReport.progress || "",
+                status,
 
-                Number(updatedReport.hoursWorked) || 0,
-
-                updatedReport.status || "Pending",
-
-                updatedReport.managerRemarks || "",
+                managerRemarks,
 
                 id
 
@@ -1244,7 +1430,8 @@ app.put("/reports/:id", authenticateToken, async (req, res) => {
         );
 
 
-        const savedReport = result.rows[0];
+        const savedReport =
+            result.rows[0];
 
 
         // =========================================
@@ -1271,8 +1458,7 @@ app.put("/reports/:id", authenticateToken, async (req, res) => {
 
 
         // =========================================
-        // CONVERT DATABASE FORMAT
-        // TO ANGULAR FORMAT
+        // FORMAT RESPONSE
         // =========================================
 
         const formattedReport = {
@@ -1378,12 +1564,16 @@ app.delete("/reports/:id", authenticateToken, async (req, res) => {
         }
 
 
-        // Check whether report exists
+        // =========================================
+        // FIND REPORT
+        // =========================================
 
         const existingResult = await pool.query(
 
             `
-            SELECT id
+            SELECT
+                id,
+                employee_id
             FROM reports
             WHERE id = $1
             `,
@@ -1404,7 +1594,45 @@ app.delete("/reports/:id", authenticateToken, async (req, res) => {
         }
 
 
-        // Delete from PostgreSQL
+        const report = existingResult.rows[0];
+
+
+        // =========================================
+        // AUTHORIZATION
+        // ADMIN → Can delete any report
+        // EMPLOYEE → Can delete only own report
+        // =========================================
+
+        if (req.user.role === "employee") {
+
+            if (report.employee_id !== req.user.id) {
+
+                return res.status(403).json({
+
+                    message:
+                        "You can only delete your own reports."
+
+                });
+
+            }
+
+        }
+
+        else if (req.user.role !== "admin") {
+
+            return res.status(403).json({
+
+                message:
+                    "You are not authorized to delete reports."
+
+            });
+
+        }
+
+
+        // =========================================
+        // DELETE REPORT
+        // =========================================
 
         await pool.query(
 
@@ -1419,7 +1647,7 @@ app.delete("/reports/:id", authenticateToken, async (req, res) => {
 
 
         console.log(
-            `Report ${id} deleted from PostgreSQL`
+            `Report ${id} deleted by ${req.user.email}`
         );
 
 
@@ -1453,42 +1681,168 @@ app.delete("/reports/:id", authenticateToken, async (req, res) => {
 
 });
 
-//6. VIEW REPORTS - PostgreSQL
+// =========================================
+// 6. VIEW REPORTS - PostgreSQL
+// ROLE + OWNERSHIP BASED ACCESS
+// =========================================
 
 app.get("/reports", authenticateToken, async (req, res) => {
 
     try {
 
-        const result = await pool.query(`
-
-            SELECT
-                r.id,
-                r.employee_id,
-                u.name AS employee_name,
-                u.email AS employee_email,
-                r.mentor_id,
-                r.department,
-                r.report_date,
-                r.task,
-                r.description,
-                r.progress,
-                r.hours_worked,
-                r.status,
-                r.manager_remarks,
-                r.submitted_at
-
-            FROM reports r
-
-            LEFT JOIN users u
-                ON r.employee_id = u.id
-
-            ORDER BY r.report_date DESC, r.id DESC
-
-        `);
+        let query;
+        let queryParams = [];
 
 
-        // Convert PostgreSQL fields
-        // to the format Angular already expects
+        // =========================================
+        // ADMIN
+        // Can view all reports
+        // =========================================
+
+        if (req.user.role === "admin") {
+
+            query = `
+
+                SELECT
+                    r.id,
+                    r.employee_id,
+                    u.name AS employee_name,
+                    u.email AS employee_email,
+                    r.mentor_id,
+                    r.department,
+                    r.report_date,
+                    r.task,
+                    r.description,
+                    r.progress,
+                    r.hours_worked,
+                    r.status,
+                    r.manager_remarks,
+                    r.submitted_at
+
+                FROM reports r
+
+                LEFT JOIN users u
+                    ON r.employee_id = u.id
+
+                ORDER BY r.report_date DESC, r.id DESC
+
+            `;
+
+        }
+
+
+        // =========================================
+        // EMPLOYEE
+        // Can view only their own reports
+        // =========================================
+
+        else if (req.user.role === "employee") {
+
+            query = `
+
+                SELECT
+                    r.id,
+                    r.employee_id,
+                    u.name AS employee_name,
+                    u.email AS employee_email,
+                    r.mentor_id,
+                    r.department,
+                    r.report_date,
+                    r.task,
+                    r.description,
+                    r.progress,
+                    r.hours_worked,
+                    r.status,
+                    r.manager_remarks,
+                    r.submitted_at
+
+                FROM reports r
+
+                LEFT JOIN users u
+                    ON r.employee_id = u.id
+
+                WHERE r.employee_id = $1
+
+                ORDER BY r.report_date DESC, r.id DESC
+
+            `;
+
+            queryParams = [req.user.id];
+
+        }
+
+
+        // =========================================
+        // MENTOR
+        // Can view only reports assigned to them
+        // =========================================
+
+        else if (req.user.role === "mentor") {
+
+            query = `
+
+                SELECT
+                    r.id,
+                    r.employee_id,
+                    u.name AS employee_name,
+                    u.email AS employee_email,
+                    r.mentor_id,
+                    r.department,
+                    r.report_date,
+                    r.task,
+                    r.description,
+                    r.progress,
+                    r.hours_worked,
+                    r.status,
+                    r.manager_remarks,
+                    r.submitted_at
+
+                FROM reports r
+
+                LEFT JOIN users u
+                    ON r.employee_id = u.id
+
+                WHERE r.mentor_id = $1
+
+                ORDER BY r.report_date DESC, r.id DESC
+
+            `;
+
+            queryParams = [req.user.id];
+
+        }
+
+
+        // =========================================
+        // UNKNOWN ROLE
+        // =========================================
+
+        else {
+
+            return res.status(403).json({
+
+                message:
+                    "You are not authorized to view reports."
+
+            });
+
+        }
+
+
+        // =========================================
+        // EXECUTE QUERY
+        // =========================================
+
+        const result = await pool.query(
+            query,
+            queryParams
+        );
+
+
+        // =========================================
+        // CONVERT POSTGRESQL FORMAT
+        // TO ANGULAR FORMAT
+        // =========================================
 
         const reports = result.rows.map(report => ({
 
@@ -1538,7 +1892,7 @@ app.get("/reports", authenticateToken, async (req, res) => {
 
 
         console.log(
-            "Reports fetched from PostgreSQL:",
+            `Reports fetched for ${req.user.role}:`,
             reports.length
         );
 
@@ -1557,17 +1911,13 @@ app.get("/reports", authenticateToken, async (req, res) => {
         res.status(500).json({
 
             message:
-                "Error fetching reports from database",
-
-            error:
-                error.message
+                "Error fetching reports from database"
 
         });
 
     }
 
 });
-
 
 //7. EXPORT EXCEL - PostgreSQL + SEARCH + DATE FILTER
 
