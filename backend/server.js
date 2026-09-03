@@ -7,12 +7,11 @@ const fs = require("fs");
 const XLSX = require("xlsx");
 const multer = require("multer");
 const crypto = require("crypto");
-const {
-    encryptData,
-    decryptData
-} = require("./security/encryption");
+const {encryptData, decryptData} = require("./security/encryption");
 const bcrypt = require("bcrypt");
-
+const validateReport = require("./middleware/validateReport");
+const validateReportUpdate = require("./middleware/validateReportUpdate");
+const errorHandler = require("./middleware/errorHandler");
 
 
 //CONSTANTS
@@ -869,117 +868,11 @@ app.post("/reset-password", async (req, res) => {
 
 //3. CREATE REPORT - PostgreSQL
 
-app.post("/reports", authenticateToken, decryptRequest, async (req, res) => {
+app.post("/reports", authenticateToken, decryptRequest, validateReport, async (req, res) => {
 
     try {
 
         const report = req.body;
-
-// =========================================
-// REPORT VALIDATION
-// =========================================
-
-// Required employee email
-if (
-    !report.employeeEmail ||
-    !report.employeeEmail.toString().trim()
-) {
-
-    return res.status(400).json({
-        message: "Employee email is required."
-    });
-
-}
-
-
-// Validate employee email
-if (!isValidEmail(report.employeeEmail)) {
-
-    return res.status(400).json({
-        message: "Please provide a valid employee email."
-    });
-
-}
-
-
-// Required report date
-if (!report.reportDate) {
-
-    return res.status(400).json({
-        message: "Report date is required."
-    });
-
-}
-
-
-// Validate report date
-const reportDate = new Date(report.reportDate);
-
-if (isNaN(reportDate.getTime())) {
-
-    return res.status(400).json({
-        message: "Please provide a valid report date."
-    });
-
-}
-
-
-// Required task
-if (
-    !report.task ||
-    !report.task.toString().trim()
-) {
-
-    return res.status(400).json({
-        message: "Task is required."
-    });
-
-}
-
-
-// Required description
-if (
-    !report.description ||
-    !report.description.toString().trim()
-) {
-
-    return res.status(400).json({
-        message: "Report description is required."
-    });
-
-}
-
-
-// Hours validation
-const hoursWorked = Number(report.hoursWorked);
-
-if (
-    !Number.isFinite(hoursWorked) ||
-    hoursWorked <= 0 ||
-    hoursWorked > 24
-) {
-
-    return res.status(400).json({
-        message:
-            "Hours worked must be greater than 0 and cannot exceed 24 hours."
-    });
-
-}
-
-
-// Progress validation
-if (
-    report.progress &&
-    report.progress.toString().trim().length > 100
-) {
-
-    return res.status(400).json({
-        message:
-            "Progress must not exceed 100 characters."
-    });
-
-}
-
 
 console.log("POST REPORT - PostgreSQL");
 console.log("Incoming Report:", report);
@@ -1213,15 +1106,17 @@ if (employee.role !== "employee") {
         // RESPONSE
         // =========================================
 
-        res.status(201).json({
+        return res.status(201).json({
 
-            message:
-                "Report Saved Successfully",
+    success: true,
 
-            report:
-                newReport
+    message:
+        "Report Saved Successfully",
 
-        });
+    data:
+        newReport
+
+});
 
 
     } catch (error) {
@@ -1246,306 +1141,473 @@ if (employee.role !== "employee") {
 
 });
 
-//4. UPDATE REPORT - PostgreSQL
+// =========================================================
+// 4. UPDATE REPORT - PostgreSQL
+// =========================================================
 
-app.put("/reports/:id", authenticateToken, async (req, res) => {
+app.put(
+    "/reports/:id",
+    authenticateToken,
+    validateReportUpdate,
+    async (req, res) => {
 
-    try {
+        try {
 
-        const id = parseInt(req.params.id);
+            // =========================================
+            // VALIDATE REPORT ID
+            // =========================================
 
-        if (isNaN(id)) {
+            const id = Number(req.params.id);
 
-            return res.status(400).json({
+            if (!Number.isInteger(id) || id <= 0) {
 
-                message: "Invalid report ID"
+                return res.status(400).json({
 
-            });
+                    message: "Invalid report ID."
 
-        }
+                });
 
+            }
 
-        const updatedReport = req.body;
 
+            const updatedReport = req.body;
 
-        // =========================================
-        // CHECK REPORT EXISTS
-        // =========================================
 
-        const existingResult = await pool.query(
+            // =========================================
+            // GET AUTHENTICATED USER FROM DATABASE
+            // =========================================
 
-            `
-            SELECT *
-            FROM reports
-            WHERE id = $1
-            `,
+            const userResult = await pool.query(
 
-            [id]
+                `
+                SELECT
+                    id,
+                    name,
+                    email,
+                    role,
+                    department,
+                    mentor_id
+                FROM users
+                WHERE id = $1
+                LIMIT 1
+                `,
 
-        );
+                [req.user.id]
 
+            );
 
-        if (existingResult.rows.length === 0) {
 
-            return res.status(404).json({
+            if (userResult.rows.length === 0) {
 
-                message: "Report not found"
+                return res.status(401).json({
 
-            });
+                    message: "Authenticated user not found."
 
-        }
+                });
 
+            }
 
-        const existingReport =
-            existingResult.rows[0];
 
+            const authenticatedUser =
+                userResult.rows[0];
 
-        // =========================================
-        // REPORT OWNERSHIP / AUTHORIZATION
-        // =========================================
 
-        if (
+            // =========================================
+            // CHECK REPORT EXISTS
+            // =========================================
 
-            req.user.role === "employee" &&
+            const existingResult = await pool.query(
 
-            Number(existingReport.employee_id)
-            !== Number(req.user.id)
+                `
+                SELECT *
+                FROM reports
+                WHERE id = $1
+                LIMIT 1
+                `,
 
-        ) {
+                [id]
 
-            return res.status(403).json({
+            );
 
-                message:
-                    "You are not allowed to update another employee's report."
 
-            });
+            if (existingResult.rows.length === 0) {
 
-        }
+                return res.status(404).json({
 
+                    message: "Report not found."
 
-        if (
+                });
 
-            req.user.role === "mentor" &&
+            }
 
-            Number(existingReport.mentor_id)
-            !== Number(req.user.id)
 
-        ) {
+            const existingReport =
+                existingResult.rows[0];
 
-            return res.status(403).json({
 
-                message:
-                    "You are not allowed to update a report not assigned to you."
+            // =========================================
+            // AUTHORIZATION
+            // =========================================
 
-            });
+            // Employee can update only their own report
 
-        }
+            if (
 
+                authenticatedUser.role === "employee" &&
 
-        // =========================================
-        // EMPLOYEE UPDATE RULES
-        // Employees cannot change approval fields
-        // =========================================
+                Number(existingReport.employee_id)
+                !== Number(authenticatedUser.id)
 
-        let status =
-            existingReport.status;
+            ) {
 
-        let managerRemarks =
-            existingReport.manager_remarks;
+                return res.status(403).json({
 
+                    message:
+                        "You are not allowed to update another employee's report."
 
-        if (
+                });
 
-            req.user.role === "mentor" ||
+            }
 
-            req.user.role === "admin"
 
-        ) {
+            // Mentor can update only reports assigned to them
 
-            status =
-                updatedReport.status ||
-                existingReport.status;
+            if (
 
-            managerRemarks =
-                updatedReport.managerRemarks || "";
+                authenticatedUser.role === "mentor" &&
 
-        }
+                Number(existingReport.mentor_id)
+                !== Number(authenticatedUser.id)
 
+            ) {
 
-        // =========================================
-        // UPDATE REPORT
-        // =========================================
+                return res.status(403).json({
 
-        const result = await pool.query(
+                    message:
+                        "You are not allowed to update a report not assigned to you."
 
-            `
-            UPDATE reports
+                });
 
-            SET
+            }
 
-                report_date = $1,
-                task = $2,
-                department = $3,
-                description = $4,
-                progress = $5,
-                hours_worked = $6,
-                status = $7,
-                manager_remarks = $8
 
-            WHERE id = $9
+            // =========================================
+            // DETERMINE FINAL VALUES
+            // =========================================
 
-            RETURNING *
+            const reportDate =
+    updatedReport.reportDate !== undefined &&
+    updatedReport.reportDate !== null &&
+    updatedReport.reportDate !== ""
+        ? updatedReport.reportDate
+        : existingReport.report_date;
 
-            `,
 
-            [
+            const task =
 
-                updatedReport.reportDate ||
-                    existingReport.report_date,
+                updatedReport.task !== undefined
+                    ? updatedReport.task
+                    : existingReport.task;
 
-                updatedReport.task ??
-                    existingReport.task,
 
-                updatedReport.department ??
-                    existingReport.department,
+            const department =
 
-                updatedReport.description ??
-                    existingReport.description,
+                updatedReport.department !== undefined
+                    ? updatedReport.department
+                    : existingReport.department;
 
-                updatedReport.progress ??
-                    existingReport.progress,
+
+            const description =
+
+                updatedReport.description !== undefined
+                    ? updatedReport.description
+                    : existingReport.description;
+
+
+            const progress =
+
+                updatedReport.progress !== undefined
+                    ? updatedReport.progress
+                    : existingReport.progress;
+
+
+            const hoursWorked =
 
                 updatedReport.hoursWorked !== undefined
                     ? Number(updatedReport.hoursWorked)
-                    : Number(existingReport.hours_worked),
-
-                status,
-
-                managerRemarks,
-
-                id
-
-            ]
-
-        );
+                    : Number(existingReport.hours_worked);
 
 
-        const savedReport =
-            result.rows[0];
+            // =========================================
+            // VALIDATION
+            // =========================================
+
+            if (!reportDate) {
+
+                return res.status(400).json({
+
+                    message: "Report date is required."
+
+                });
+
+            }
 
 
-        // =========================================
-        // GET EMPLOYEE DETAILS
-        // =========================================
+            if (
 
-        const employeeResult = await pool.query(
+                !task ||
+                !task.toString().trim()
 
-            `
-            SELECT
-                name,
-                email
-            FROM users
-            WHERE id = $1
-            `,
+            ) {
 
-            [savedReport.employee_id]
+                return res.status(400).json({
 
-        );
+                    message: "Task is required."
+
+                });
+
+            }
 
 
-        const employee =
-            employeeResult.rows[0] || {};
+            if (
+
+                !description ||
+                !description.toString().trim()
+
+            ) {
+
+                return res.status(400).json({
+
+                    message: "Report description is required."
+
+                });
+
+            }
 
 
-        // =========================================
-        // FORMAT RESPONSE
-        // =========================================
+            if (
 
-        const formattedReport = {
+                !Number.isFinite(hoursWorked) ||
+                hoursWorked <= 0 ||
+                hoursWorked > 24
 
-            id:
-                savedReport.id,
+            ) {
 
-            employeeId:
-                savedReport.employee_id,
+                return res.status(400).json({
 
-            employeeName:
-                employee.name || "",
+                    message:
+                        "Hours worked must be greater than 0 and cannot exceed 24 hours."
 
-            employeeEmail:
-                employee.email || "",
+                });
 
-            mentorId:
-                savedReport.mentor_id || null,
-
-            department:
-                savedReport.department || "",
-
-            reportDate:
-                savedReport.report_date || "",
-
-            task:
-                savedReport.task || "",
-
-            description:
-                savedReport.description || "",
-
-            progress:
-                savedReport.progress || "",
-
-            hoursWorked:
-                Number(savedReport.hours_worked) || 0,
-
-            status:
-                savedReport.status || "Pending",
-
-            managerRemarks:
-                savedReport.manager_remarks || "",
-
-            submittedAt:
-                savedReport.submitted_at || ""
-
-        };
+            }
 
 
-        console.log(
-            "Updated Report in PostgreSQL:",
-            formattedReport
-        );
+            if (
+
+                progress &&
+                progress.toString().trim().length > 100
+
+            ) {
+
+                return res.status(400).json({
+
+                    message:
+                        "Progress must not exceed 100 characters."
+
+                });
+
+            }
 
 
-        res.json({
+            // =========================================
+            // STATUS AND MANAGER REMARKS
+            // =========================================
 
-            message:
-                "Report Updated Successfully",
+            let status =
+                existingReport.status;
 
-            report:
+
+            let managerRemarks =
+                existingReport.manager_remarks;
+
+
+            // Only mentor/admin can change approval details
+
+            if (
+
+                authenticatedUser.role === "mentor" ||
+                authenticatedUser.role === "admin"
+
+            ) {
+
+                status =
+
+                    updatedReport.status ||
+                    existingReport.status;
+
+
+                managerRemarks =
+
+                    updatedReport.managerRemarks !== undefined
+                        ? updatedReport.managerRemarks
+                        : existingReport.manager_remarks;
+
+            }
+
+
+            // =========================================
+            // UPDATE REPORT
+            // =========================================
+
+            const result = await pool.query(
+
+                `
+                UPDATE reports
+
+                SET
+
+                    report_date = $1,
+                    task = $2,
+                    department = $3,
+                    description = $4,
+                    progress = $5,
+                    hours_worked = $6,
+                    status = $7,
+                    manager_remarks = $8
+
+                WHERE id = $9
+
+                RETURNING *
+
+                `,
+
+                [
+
+                    reportDate,
+
+                    task.toString().trim(),
+
+                    department || "",
+
+                    description.toString().trim(),
+
+                    progress || "",
+
+                    hoursWorked,
+
+                    status,
+
+                    managerRemarks || "",
+
+                    id
+
+                ]
+
+            );
+
+
+            const savedReport =
+                result.rows[0];
+
+
+            // =========================================
+            // FORMAT RESPONSE FOR ANGULAR
+            // =========================================
+
+            const formattedReport = {
+
+                id:
+                    savedReport.id,
+
+                employeeId:
+                    savedReport.employee_id,
+
+                employeeName:
+                    authenticatedUser.name || "",
+
+                employeeEmail:
+                    authenticatedUser.email || "",
+
+                mentorId:
+                    savedReport.mentor_id || null,
+
+                department:
+                    savedReport.department || "",
+
+                reportDate:
+                    savedReport.report_date || "",
+
+                task:
+                    savedReport.task || "",
+
+                description:
+                    savedReport.description || "",
+
+                progress:
+                    savedReport.progress || "",
+
+                hoursWorked:
+                    Number(savedReport.hours_worked) || 0,
+
+                status:
+                    savedReport.status || "Pending",
+
+                managerRemarks:
+                    savedReport.manager_remarks || "",
+
+                submittedAt:
+                    savedReport.submitted_at || ""
+
+            };
+
+
+            console.log(
+                "Report Updated Successfully:",
                 formattedReport
-
-        });
-
-
-    } catch (error) {
-
-        console.error(
-            "UPDATE REPORT DATABASE ERROR:",
-            error
-        );
+            );
 
 
-        res.status(500).json({
+            // =========================================
+            // SUCCESS RESPONSE
+            // =========================================
 
-            message:
-                "Error updating report",
+            return res.json({
 
-            error:
-                error.message
+    success: true,
 
-        });
+    message:
+        "Report Updated Successfully",
+
+    data:
+        formattedReport
+
+});
+
+
+        } catch (error) {
+
+            console.error(
+                "UPDATE REPORT DATABASE ERROR:",
+                error
+            );
+
+
+            return res.status(500).json({
+
+                message:
+                    "Unable to update report.",
+
+                error:
+                    error.message
+
+            });
+
+        }
 
     }
 
-});
+);
 
 //5. DELETE REPORT - PostgreSQL
 
@@ -4431,6 +4493,13 @@ app.get('/reports/employee/:employeeId', async (req, res) => {
     }
 
 });
+
+// =========================================================
+// CENTRALIZED ERROR HANDLER
+// Must be registered after all routes
+// =========================================================
+
+app.use(errorHandler);
 
 
 // START SERVER
