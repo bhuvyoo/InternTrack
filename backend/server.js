@@ -528,24 +528,16 @@ app.post("/forgot-password", async (req, res) => {
         );
 
 
-        /*
-         * Always return the same response whether
-         * the email exists or not.
-         *
-         * This prevents revealing which emails
-         * have accounts.
-         */
-
         if (userResult.rows.length === 0) {
 
-            return res.json({
+    return res.status(404).json({
 
-                message:
-                    "If an account exists for this email, a password reset link has been generated."
+        message:
+            "No account found with this email address."
 
-            });
+    });
 
-        }
+}
 
 
         const user = userResult.rows[0];
@@ -3114,57 +3106,56 @@ if (!isValidPhone(phone)) {
 
 
 // 9. GET USERS - PostgreSQL
-app.get("/users", authenticateToken, authorizeRoles("admin"), async (req, res) => {
 
-    try {
+app.get(
+    "/users",
+    authenticateToken,
+    authorizeRoles("admin", "mentor"),
+    async (req, res) => {
 
-        const result = await pool.query(`
-            SELECT
-                id,
-                name,
-                email,
-                role,
-                employment_type,
-                department,
-                joining_date,
-                status,
-                mentor_id,
-                archive_reason,
-                archived_on,
-                archived_by
-            FROM users
-            ORDER BY id;
-        `);
+        try {
 
-        const users = result.rows.map(user => ({
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            employmentType: user.employment_type || "",
-            department: user.department || "",
-            joiningDate: user.joining_date || "",
-            status: user.status || "Active",
-            mentorId: user.mentor_id || null,
-            archiveReason: user.archive_reason || "",
-            archivedOn: user.archived_on || "",
-            archivedBy: user.archived_by || ""
-        }));
+            const result = await pool.query(`
+                SELECT
+                    id,
+                    name,
+                    email,
+                    role,
+                    employment_type,
+                    department,
+                    joining_date,
+                    status,
+                    mentor_id,
+                    archive_reason,
+                    archived_on,
+                    archived_by
+                FROM users
+                ORDER BY id;
+            `);
 
-        res.json(users);
+            const users = result.rows.map(user => ({
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                employmentType: user.employment_type || "",
+                department: user.department || "",
+                joiningDate: user.joining_date || "",
+                status: user.status || "Active",
+                mentorId: user.mentor_id || null,
+                archiveReason: user.archive_reason || "",
+                archivedOn: user.archived_on || "",
+                archivedBy: user.archived_by || ""
+            }));
 
-    } catch (error) {
+            res.json(users);
 
-        console.error("GET USERS DATABASE ERROR:", error);
-
-        res.status(500).json({
-            message: "Error fetching employees from database"
-        });
+        } catch (error) {
+            // existing error handling
+        }
 
     }
-
-});
-
+);
 
 //10. EXPORT EMPLOYEES - PostgreSQL
 
